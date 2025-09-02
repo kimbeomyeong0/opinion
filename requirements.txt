@@ -1,0 +1,6 @@
+supabase==2.3.4
+python-dotenv==1.0.0
+httpx==0.25.2
+beautifulsoup4==4.12.2
+playwright==1.40.0
+rich==13.7.0
