@@ -110,3 +110,14 @@ class SupabaseManager:
         except Exception as e:
             console.print(f"❌ 기사 삽입 오류: {str(e)}")
             return False
+
+
+# 전역 인스턴스 (지연 초기화) - 싱글톤 패턴
+_supabase_manager = None
+
+def get_supabase_client():
+    """Supabase 클라이언트 인스턴스를 반환 (싱글톤 패턴)"""
+    global _supabase_manager
+    if _supabase_manager is None:
+        _supabase_manager = SupabaseManager()
+    return _supabase_manager

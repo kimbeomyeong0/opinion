@@ -14,14 +14,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['SUPABASE_URL'] = 'your_supabase_url_here'
 os.environ['SUPABASE_KEY'] = 'your_supabase_key_here'
 
-from db.supabase import SupabaseClient
+from utils.supabase_manager import SupabaseManager
 
 
 def test_insert_article():
     """insert_article 함수 테스트"""
     try:
         # Supabase 클라이언트 생성
-        client = SupabaseClient()
+        client = SupabaseManager()
         
         # 더미 기사 데이터 생성
         dummy_article = {
@@ -54,11 +54,11 @@ def test_validation():
     """데이터 검증 로직 테스트 (Supabase 연결 없이)"""
     print("=== 데이터 검증 로직 테스트 ===")
     
-    # SupabaseClient 클래스의 insert_article 메서드를 직접 테스트
-    from db.supabase import SupabaseClient
+    # SupabaseManager 클래스의 insert_article 메서드를 직접 테스트
+    from utils.supabase_manager import SupabaseManager
     
     # Mock 클라이언트 생성 (실제 Supabase 연결 없이)
-    class MockSupabaseClient(SupabaseClient):
+    class MockSupabaseClient(SupabaseManager):
         def __init__(self):
             # 부모 클래스의 __init__을 호출하지 않음
             pass
