@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 
 # 상위 디렉토리의 utils 모듈 import
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from utils.supabase_manager import SupabaseManager
 
 console = Console()

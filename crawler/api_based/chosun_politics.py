@@ -21,7 +21,7 @@ from rich.table import Table
 from playwright.async_api import async_playwright
 
 # 프로젝트 루트 추가
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # 내부 모듈
 from utils.supabase_manager import SupabaseManager

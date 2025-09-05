@@ -20,7 +20,7 @@ import time
 import re
 
 # 프로젝트 루트에서 utils 불러오기
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from utils.supabase_manager import SupabaseManager
 
 console = Console()
