@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-뉴시스 정치 기사 크롤러 (병렬처리 최적화 버전)
+뉴시스 정치 기사 크롤러 (본문 추출 개선 버전)
 """
 import asyncio
 import sys
@@ -11,6 +11,7 @@ from playwright.async_api import async_playwright
 from datetime import datetime
 import pytz
 from rich.console import Console
+import re
 
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -44,7 +45,7 @@ class NewsisPoliticsCollector:
                 r = await client.get(url)
                 soup = BeautifulSoup(r.text, "html.parser")
 
-                for el in soup.select(".txtCont")[:5]:  # 앞에서 5개만
+                for el in soup.select(".txtCont")[:20]:  # 앞에서 20개만
                     a = el.select_one(".tit a")
                     if not a:
                         continue
@@ -88,38 +89,87 @@ class NewsisPoliticsCollector:
                 # 페이지 로드 (타임아웃 단축)
                 await page.goto(article["url"], wait_until="domcontentloaded", timeout=20000)
 
-                # 발행 시간 추출
+                # 발행 시간 추출 - 메타 태그에서 추출
                 try:
-                    time_text = await page.inner_text("span:has-text('수정')", timeout=5000)
-                    time_str = time_text.replace("수정", "").strip()
-                    dt = datetime.strptime(time_str, "%Y.%m.%d %H:%M:%S")
-                    kst = pytz.timezone("Asia/Seoul")
-                    article["published_at"] = kst.localize(dt).astimezone(pytz.UTC).isoformat()
-                except Exception:
-                    article["published_at"] = datetime.now(pytz.UTC).isoformat()
+                    # article:published_time 메타 태그에서 추출
+                    published_time = await page.get_attribute('meta[property="article:published_time"]', 'content')
+                    if published_time:
+                        # ISO 8601 형식 파싱 (예: 2025-09-05T13:47:51+09:00)
+                        dt = datetime.fromisoformat(published_time.replace('Z', '+00:00'))
+                        article["published_at"] = dt.astimezone(pytz.UTC).isoformat()
+                        console.print(f"📅 [{index}] 발행시간: {published_time} -> {article['published_at']}")
+                    else:
+                        # 대안: 등록 시간에서 추출
+                        time_text = await page.inner_text("span:has-text('등록')", timeout=5000)
+                        time_str = time_text.replace("등록", "").strip()
+                        dt = datetime.strptime(time_str, "%Y.%m.%d %H:%M:%S")
+                        kst = pytz.timezone("Asia/Seoul")
+                        article["published_at"] = kst.localize(dt).astimezone(pytz.UTC).isoformat()
+                        console.print(f"📅 [{index}] 등록시간: {time_str} -> {article['published_at']}")
+                except Exception as e:
+                    console.print(f"⚠️ [{index}] 발행시간 추출 실패: {str(e)[:50]}...")
+                    # 발행시간을 찾을 수 없는 경우, 기본값으로 설정
+                    article["published_at"] = "2025-01-01T00:00:00Z"
 
-                # 본문 추출
+                # 본문 추출 (개선된 로직)
                 content = await page.evaluate(
                     """
                     () => {
                         const article = document.querySelector("article");
                         if (!article) return "";
 
-                        // 광고/이미지/불필요 요소 제거
-                        article.querySelectorAll("iframe, script, .banner, img, .ad").forEach(el => el.remove());
-
-                        // 순수 텍스트만 추출
-                        const text = article.innerText || article.textContent || "";
+                        // 불필요한 요소들 제거
+                        const elementsToRemove = [
+                            'div.summury',           // 요약 부분
+                            'div#textBody',          // textBody div 전체
+                            'iframe',                // 광고 iframe
+                            'script',                // 스크립트
+                            'div#view_ad',          // 광고
+                            'div.thumCont img',     // 이미지
+                            'p.photojournal'        // 사진 설명
+                        ];
                         
-                        // 기자명, 이메일 등 제거
-                        return text
-                            .replace(/[가-힣]+\\s*기자/g, '')
-                            .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g, '')
-                            .replace(/\\[뉴시스\\]/g, '')
+                        elementsToRemove.forEach(selector => {
+                            article.querySelectorAll(selector).forEach(el => el.remove());
+                        });
+
+                        // article 내용을 가져온 후 HTML 태그를 텍스트로 변환
+                        let content = article.innerHTML;
+                        
+                        // <br> 태그를 개행문자로 변환
+                        content = content.replace(/<br\s*\/?>/gi, '\\n');
+                        
+                        // 다른 HTML 태그들 제거
+                        content = content.replace(/<[^>]*>/g, '');
+                        
+                        // HTML 엔티티 디코딩
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = content;
+                        content = tempDiv.textContent || tempDiv.innerText || '';
+                        
+                        // 정리 작업
+                        content = content
+                            .replace(/\\n\\s*\\n/g, '\\n')  // 연속된 개행문자 제거
+                            .replace(/^\\s+|\\s+$/g, '')    // 앞뒤 공백 제거
+                            .replace(/\\t+/g, ' ')          // 탭을 공백으로
+                            .replace(/\\s+/g, ' ')          // 연속된 공백을 하나로
+                            .replace(/\\n /g, '\\n')        // 개행 후 공백 제거
                             .trim();
+                        
+                        return content;
                     }
                 """
                 )
+                
+                # 추가 정리 작업 (Python에서)
+                if content:
+                    # 기자명, 이메일 등 정리
+                    content = re.sub(r'[가-힣]+\s*기자\s*=?\s*', '', content)
+                    content = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', content)
+                    content = re.sub(r'\[뉴시스\]', '', content)
+                    content = re.sub(r'◎공감언론\s*뉴시스.*', '', content)
+                    content = re.sub(r'\*재판매.*', '', content)
+                    content = content.strip()
                 
                 article["content"] = content
                 console.print(f"✅ [{index}] 완료: {len(content)}자")
@@ -193,9 +243,9 @@ class NewsisPoliticsCollector:
         console.print(f"  📈 성공률: {success_rate:.1f}%")
 
 
-# 더 빠른 버전: httpx만 사용 (Playwright 없이)
+# 더 빠른 버전: httpx만 사용 (개선된 파싱)
 class NewsisFastCollector:
-    """httpx만 사용하는 초고속 버전"""
+    """httpx만 사용하는 초고속 버전 (개선된 본문 추출)"""
     
     def __init__(self):
         self.articles = []
@@ -217,7 +267,7 @@ class NewsisFastCollector:
                 r = await client.get(url)
                 soup = BeautifulSoup(r.text, "html.parser")
 
-                for el in soup.select(".txtCont")[:5]:
+                for el in soup.select(".txtCont")[:20]:
                     a = el.select_one(".tit a")
                     if not a:
                         continue
@@ -231,10 +281,10 @@ class NewsisFastCollector:
                     console.print(f"📰 {title[:50]}...")
 
     async def collect_contents_httpx_only(self):
-        """httpx만으로 병렬 본문 수집 - 초고속!"""
+        """httpx만으로 병렬 본문 수집 - 개선된 파싱!"""
         console.print(f"📖 {len(self.articles)}개 기사 초고속 병렬 수집...")
         
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             tasks = []
             for i, article in enumerate(self.articles):
                 task = self._extract_with_httpx(client, article, i + 1)
@@ -242,38 +292,99 @@ class NewsisFastCollector:
             
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    def _clean_content(self, content):
+        """본문 텍스트 정리 함수"""
+        if not content:
+            return ""
+        
+        # 기자명, 이메일 등 제거
+        content = re.sub(r'[가-힣]+\s*기자\s*=?\s*', '', content)
+        content = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', content)
+        content = re.sub(r'\[뉴시스\]', '', content)
+        content = re.sub(r'◎공감언론\s*뉴시스.*', '', content)
+        content = re.sub(r'\*재판매.*', '', content)
+        content = re.sub(r'photo@newsis\.com.*', '', content)
+        
+        # 연속된 공백과 개행 정리
+        content = re.sub(r'\n\s*\n', '\n', content)
+        content = re.sub(r'\s+', ' ', content)
+        content = content.strip()
+        
+        return content
+
     async def _extract_with_httpx(self, client, article, index):
-        """httpx로 HTML 파싱만으로 초고속 추출"""
+        """httpx로 HTML 파싱 - 개선된 본문 추출"""
         try:
             console.print(f"📖 [{index}] 시작: {article['title'][:40]}...")
             
             response = await client.get(article["url"])
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # 발행시간 추출
-            time_elem = soup.select_one("span:-soup-contains('수정')")
-            if time_elem:
-                time_str = time_elem.get_text().replace("수정", "").strip()
-                try:
-                    dt = datetime.strptime(time_str, "%Y.%m.%d %H:%M:%S")
-                    kst = pytz.timezone("Asia/Seoul")
-                    article["published_at"] = kst.localize(dt).astimezone(pytz.UTC).isoformat()
-                except:
-                    article["published_at"] = datetime.now(pytz.UTC).isoformat()
-            else:
-                article["published_at"] = datetime.now(pytz.UTC).isoformat()
+            # 발행시간 추출 - 메타 태그에서 추출
+            published_time = None
             
-            # 본문 추출
+            # 1. article:published_time 메타 태그에서 추출
+            meta_elem = soup.select_one('meta[property="article:published_time"]')
+            if meta_elem:
+                published_time = meta_elem.get('content', '')
+                console.print(f"📅 [{index}] 메타 태그에서 발행시간 발견: {published_time}")
+            
+            # 2. 대안: 등록 시간에서 추출
+            if not published_time:
+                for span in soup.find_all('span'):
+                    if span.get_text() and '등록' in span.get_text():
+                        time_str = span.get_text().replace("등록", "").strip()
+                        published_time = time_str
+                        console.print(f"📅 [{index}] 등록 시간에서 발견: {time_str}")
+                        break
+            
+            if published_time:
+                try:
+                    if published_time.startswith('2025'):  # ISO 8601 형식
+                        # ISO 8601 형식 파싱 (예: 2025-09-05T13:47:51+09:00)
+                        dt = datetime.fromisoformat(published_time.replace('Z', '+00:00'))
+                        article["published_at"] = dt.astimezone(pytz.UTC).isoformat()
+                    else:
+                        # 일반 형식 파싱 (예: 2025.09.05 13:47:51)
+                        dt = datetime.strptime(published_time, "%Y.%m.%d %H:%M:%S")
+                        kst = pytz.timezone("Asia/Seoul")
+                        article["published_at"] = kst.localize(dt).astimezone(pytz.UTC).isoformat()
+                    console.print(f"📅 [{index}] 발행시간: {published_time} -> {article['published_at']}")
+                except Exception as e:
+                    console.print(f"⚠️ [{index}] 시간 파싱 실패: {str(e)}")
+                    article["published_at"] = "2025-01-01T00:00:00Z"
+            else:
+                console.print(f"⚠️ [{index}] 시간 정보를 찾을 수 없음")
+                article["published_at"] = "2025-01-01T00:00:00Z"
+            
+            # 본문 추출 - 개선된 로직
             article_elem = soup.select_one("article")
             if article_elem:
-                # 불필요한 태그 제거
-                for tag in article_elem.find_all(["script", "iframe", "img"]):
-                    tag.decompose()
+                # 불필요한 요소들 제거
+                for selector in [
+                    'div.summury',      # 요약
+                    'div#textBody',     # textBody div 전체
+                    'iframe',           # 광고
+                    'script',           # 스크립트
+                    'div#view_ad',      # 광고
+                    'img',              # 이미지
+                    'p.photojournal'    # 사진 설명
+                ]:
+                    for elem in article_elem.select(selector):
+                        elem.decompose()
                 
-                content = article_elem.get_text(separator='\n', strip=True)
-                # 정리
-                content = content.replace('기자', '').replace('[뉴시스]', '').strip()
+                # article의 텍스트 추출 (br 태그 고려)
+                # br 태그를 개행문자로 변환
+                for br in article_elem.find_all('br'):
+                    br.replace_with('\n')
+                
+                # 텍스트 추출
+                content = article_elem.get_text(separator=' ', strip=True)
+                
+                # 정리 작업
+                content = self._clean_content(content)
                 article["content"] = content
+                
             else:
                 article["content"] = ""
             
@@ -345,15 +456,12 @@ class NewsisFastCollector:
 
 
 async def main():
-    console.print("선택하세요:")
-    console.print("1. 병렬 처리 버전 (Playwright)")
-    console.print("2. 초고속 버전 (httpx만 사용)")
-    
-    # 기본적으로 초고속 버전 실행
+    console.print("🚀 뉴시스 초고속 크롤링 시작 (httpx만 사용)")
     collector = NewsisFastCollector()
-    await collector.run(num_pages=1)
+    await collector.run(num_pages=10)
     
     # 결과 출력
+    console.print(f"\n📋 수집된 기사 {len(collector.articles)}개:")
     for i, art in enumerate(collector.articles, 1):
         console.print(f"\n=== 기사 {i} ===")
         console.print(f"제목: {art['title']}")
@@ -361,7 +469,8 @@ async def main():
         console.print(f"발행시간: {art.get('published_at', 'N/A')}")
         console.print(f"본문 길이: {len(art.get('content', ''))}자")
         if art.get('content'):
-            console.print(f"본문 미리보기: {art['content'][:100]}...")
+            preview = art['content'][:200].replace('\n', ' ')
+            console.print(f"본문 미리보기: {preview}...")
 
 
 if __name__ == "__main__":
