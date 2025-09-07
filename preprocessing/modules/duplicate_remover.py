@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from utils.supabase_manager import SupabaseManager
 from preprocessing.utils.similarity_calculator import SimilarityCalculator, SimilarityResult
 from preprocessing.modules.basic_filter import BasicFilter
+from preprocessing.modules.lead_extractor import LeadExtractor
 
 @dataclass
 class PreprocessingResult:
@@ -37,7 +38,8 @@ class IntegratedPreprocessor:
     """통합 전처리 클래스 (중복 제거 + 기본 필터링)"""
     
     def __init__(self, title_threshold: float = 1.0, content_threshold: float = 0.95, 
-                 min_sentences: int = 3, min_content_length: int = 100):
+                 min_sentences: int = 3, min_content_length: int = 100, 
+                 max_lead_sentences: int = 3):
         """
         초기화
         
@@ -46,10 +48,12 @@ class IntegratedPreprocessor:
             content_threshold: 본문 유사도 임계값 (기본값: 0.95)
             min_sentences: 최소 문장 수 (기본값: 3)
             min_content_length: 최소 본문 길이 (기본값: 100자)
+            max_lead_sentences: 리드문 최대 문장 수 (기본값: 3)
         """
         self.supabase_manager = SupabaseManager()
         self.similarity_calculator = SimilarityCalculator(title_threshold, content_threshold)
         self.basic_filter = BasicFilter(min_sentences, min_content_length)
+        self.lead_extractor = LeadExtractor(max_lead_sentences)
         
     def fetch_articles_from_supabase(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -253,10 +257,13 @@ class IntegratedPreprocessor:
             cleaned_articles = []
             
             for article in articles:
+                # 리드문 추출 (전처리 성능 최적화)
+                lead_paragraph = self.lead_extractor.extract_lead_paragraph(article.get('content', ''))
+                
                 cleaned_article = {
                     'original_article_id': article['id'],
                     'title_cleaned': article.get('title', ''),
-                    'content_cleaned': article.get('content', ''),
+                    'lead_paragraph': lead_paragraph,
                     'preprocessing_metadata': {
                         'duplicate_removal': {
                             'processed_at': datetime.now().isoformat(),
@@ -270,6 +277,12 @@ class IntegratedPreprocessor:
                             'no_content_removed': False,
                             'news_agency_removed': False,
                             'short_article_removed': False
+                        },
+                        'lead_extraction': {
+                            'processed_at': datetime.now().isoformat(),
+                            'max_sentences': self.lead_extractor.max_sentences,
+                            'lead_length': len(lead_paragraph),
+                            'original_length': len(article.get('content', ''))
                         }
                     },
                     'created_at': datetime.now().isoformat(),

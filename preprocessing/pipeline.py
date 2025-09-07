@@ -10,7 +10,7 @@ import sys
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass
 import logging
 
@@ -89,6 +89,11 @@ class FullPipelineResult:
 class PreprocessingPipeline:
     """종합 전처리 파이프라인 클래스"""
     
+    # 상수 정의
+    DEFAULT_PAGE_SIZE = 1000
+    PROGRESS_LOG_INTERVAL = 100
+    BATCH_SIZE = 50
+    
     def __init__(self, verbose: bool = False):
         """파이프라인 초기화"""
         # 로깅 설정
@@ -102,6 +107,10 @@ class PreprocessingPipeline:
         self.text_cleaner = TextCleaner()
         self.text_normalizer = TextNormalizer()
         self.content_merger = ContentMerger()
+        
+        # 리드문 추출기 초기화 (성능 최적화)
+        from preprocessing.modules.lead_extractor import LeadExtractor
+        self.lead_extractor = LeadExtractor()
         
         # 단계별 정의
         self.stages = {
@@ -488,13 +497,13 @@ class PreprocessingPipeline:
     def _fetch_articles_for_cleaning(self) -> List[Dict[str, Any]]:
         """정제되지 않은 기사들을 효율적으로 조회"""
         articles = []
-        page_size = 1000
+        page_size = self.DEFAULT_PAGE_SIZE
         offset = 0
         
         while True:
             try:
                 articles_result = self.supabase_manager.client.table('articles_cleaned').select(
-                    'id, original_article_id, title_cleaned, content_cleaned'
+                    'id, original_article_id, title_cleaned, lead_paragraph'
                 ).or_(
                     'preprocessing_metadata->>text_cleaned.is.null,preprocessing_metadata->>text_cleaned.eq.false'
                 ).order('created_at').range(offset, offset + page_size - 1).execute()
@@ -543,7 +552,7 @@ class PreprocessingPipeline:
                         update_batch = []
                 
                 # 진행 상황 로깅
-                if (i + 1) % 100 == 0:
+                if (i + 1) % self.PROGRESS_LOG_INTERVAL == 0:
                     self.logger.info(f"진행 상황: {i + 1}/{len(articles)} 기사 처리 완료")
                     
             except Exception as e:
@@ -555,38 +564,58 @@ class PreprocessingPipeline:
     
     def _clean_single_article(self, article: Dict[str, Any], 
                             media_cache: Dict[str, str]) -> Optional[Dict[str, Any]]:
-        """단일 기사 정제 처리"""
+        """단일 기사 정제 처리 (리드문 기반)"""
         try:
-            # 언론사 정보 조회 (캐시에서)
             media_outlet = media_cache.get(article['original_article_id'], 'unknown')
             
-            # 텍스트 정제 실행
-            cleaned_title, title_patterns = self.text_cleaner.clean_title(
-                article['title_cleaned'] or '', 
-                media_outlet
-            )
-            cleaned_content, content_patterns = self.text_cleaner.clean_content(
-                article['content_cleaned'] or '', 
-                media_outlet
-            )
+            # 제목과 리드문 정제
+            cleaned_title, title_patterns = self._clean_article_title(article, media_outlet)
+            cleaned_lead, lead_patterns, lead_paragraph = self._clean_article_lead(article, media_outlet)
             
-            return {
-                'id': article['id'],
-                'title_cleaned': cleaned_title,
-                'content_cleaned': cleaned_content,
-                'preprocessing_metadata': {
-                    'text_cleaned': True,
-                    'text_cleaned_at': datetime.now().isoformat(),
-                    'title_patterns_removed': title_patterns,
-                    'content_patterns_removed': content_patterns,
-                    'media_outlet': media_outlet
-                },
-                'updated_at': datetime.now().isoformat()
-            }
+            return self._build_cleaned_article_result(
+                article, cleaned_title, title_patterns, 
+                cleaned_lead, lead_patterns, lead_paragraph, media_outlet
+            )
             
         except Exception as e:
             self.logger.error(f"기사 {article.get('id', 'unknown')} 정제 실패: {e}")
             return None
+    
+    def _clean_article_title(self, article: Dict[str, Any], media_outlet: str) -> Tuple[str, List[str]]:
+        """기사 제목 정제"""
+        return self.text_cleaner.clean_title(article['title_cleaned'] or '', media_outlet)
+    
+    def _clean_article_lead(self, article: Dict[str, Any], media_outlet: str) -> Tuple[str, List[str], str]:
+        """기사 리드문 정제"""
+        lead_paragraph = article.get('lead_paragraph', '')
+        if not lead_paragraph:
+            lead_paragraph = article.get('lead_paragraph', '')
+        
+        cleaned_lead, lead_patterns = self.text_cleaner.clean_content(lead_paragraph, media_outlet)
+        return cleaned_lead, lead_patterns, lead_paragraph
+    
+    def _build_cleaned_article_result(self, article: Dict[str, Any], cleaned_title: str, 
+                                    title_patterns: List[str], cleaned_lead: str, 
+                                    lead_patterns: List[str], lead_paragraph: str, 
+                                    media_outlet: str) -> Dict[str, Any]:
+        """정제된 기사 결과 구성"""
+        return {
+            'id': article['id'],
+            'title_cleaned': cleaned_title,
+            'lead_paragraph': cleaned_lead,  # 정제된 리드문
+            'preprocessing_metadata': {
+                'text_cleaned': True,
+                'text_cleaned_at': datetime.now().isoformat(),
+                'title_patterns_removed': title_patterns,
+                'lead_patterns_removed': lead_patterns,
+                'media_outlet': media_outlet,
+                'lead_extraction': {
+                    'original_lead_length': len(lead_paragraph),
+                    'cleaned_lead_length': len(cleaned_lead)
+                }
+            },
+            'updated_at': datetime.now().isoformat()
+        }
     
     def _batch_update_articles(self, update_batch: List[Dict[str, Any]]) -> None:
         """기사들을 배치로 업데이트"""
@@ -594,7 +623,7 @@ class PreprocessingPipeline:
             for update_data in update_batch:
                 self.supabase_manager.client.table('articles_cleaned').update({
                     'title_cleaned': update_data['title_cleaned'],
-                    'content_cleaned': update_data['content_cleaned'],
+                    'lead_paragraph': update_data['lead_paragraph'],
                     'preprocessing_metadata': update_data['preprocessing_metadata'],
                     'updated_at': update_data['updated_at']
                 }).eq('id', update_data['id']).execute()
@@ -606,7 +635,7 @@ class PreprocessingPipeline:
                 try:
                     self.supabase_manager.client.table('articles_cleaned').update({
                         'title_cleaned': update_data['title_cleaned'],
-                        'content_cleaned': update_data['content_cleaned'],
+                        'lead_paragraph': update_data['lead_paragraph'],
                         'preprocessing_metadata': update_data['preprocessing_metadata'],
                         'updated_at': update_data['updated_at']
                     }).eq('id', update_data['id']).execute()
@@ -616,13 +645,13 @@ class PreprocessingPipeline:
     def _fetch_articles_for_normalization(self) -> List[Dict[str, Any]]:
         """정규화되지 않은 기사들을 효율적으로 조회"""
         articles = []
-        page_size = 1000
+        page_size = self.DEFAULT_PAGE_SIZE
         offset = 0
         
         while True:
             try:
                 articles_result = self.supabase_manager.client.table('articles_cleaned').select(
-                    'id, title_cleaned, content_cleaned'
+                    'id, title_cleaned, lead_paragraph'
                 ).or_(
                     'preprocessing_metadata->>text_normalized.is.null,preprocessing_metadata->>text_normalized.eq.false'
                 ).order('created_at').range(offset, offset + page_size - 1).execute()
@@ -650,12 +679,12 @@ class PreprocessingPipeline:
         try:
             # 텍스트 정규화 실행
             title_result = self.text_normalizer.normalize_text(article['title_cleaned'] or '')
-            content_result = self.text_normalizer.normalize_text(article['content_cleaned'] or '')
+            content_result = self.text_normalizer.normalize_text(article['lead_paragraph'] or '')
             
             return {
                 'id': article['id'],
                 'title_cleaned': title_result.normalized_text,
-                'content_cleaned': content_result.normalized_text,
+                'lead_paragraph': content_result.normalized_text,
                 'preprocessing_metadata': {
                     'text_normalized': True,
                     'text_normalized_at': datetime.now().isoformat(),

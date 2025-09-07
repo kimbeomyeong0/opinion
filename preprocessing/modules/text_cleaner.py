@@ -34,6 +34,19 @@ class TextCleaner:
         """텍스트 정제기 초기화"""
         self.patterns = self._initialize_patterns()
         
+    def _remove_simple_bylines(self, text: str) -> str:
+        """문장 앞의 [지역=언론사] 또는 (지역=언론사) 패턴 제거 (간단한 방법)"""
+        if not text:
+            return text
+        
+        # 문장 시작의 [지역=언론사] 패턴 제거
+        text = re.sub(r'^\[[^\]]*\]\s*', '', text)
+        
+        # 문장 시작의 (지역=언론사) 패턴 제거  
+        text = re.sub(r'^\([^)]*\)\s*', '', text)
+        
+        return text.strip()
+        
     def _initialize_patterns(self) -> Dict[str, Dict[str, List[str]]]:
         """언론사별 정제 패턴 초기화"""
         return {
@@ -51,6 +64,19 @@ class TextCleaner:
                     r'^\[[^=·]+[·]?[^=]*=뉴스원\]\s*[가-힣\s]*(기자|특파원|기지)[가-힣\s]*=+\s*',
                     r'^\[[^=·]+[·]?[^=]*=연합뉴스\]\s*[가-힣\s]*(기자|특파원|기지)[가-힣\s]*=+\s*',
                     r'^\[[^=·]+[·]?[^=]*=뉴시스\]\s*[가-힣\s]*(기자|특파원|기지)[가-힣\s]*=+\s*',
+                    # 여러 기자명이 있는 경우 (공백으로 구분)
+                    r'^\([^=·]+[·]?[^=]*=뉴스1\)\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\([^=·]+[·]?[^=]*=뉴스원\)\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\([^=·]+[·]?[^=]*=연합뉴스\)\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\([^=·]+[·]?[^=]*=뉴시스\)\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\[[^=·]+[·]?[^=]*=뉴스1\]\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\[[^=·]+[·]?[^=]*=뉴스원\]\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\[[^=·]+[·]?[^=]*=연합뉴스\]\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    r'^\[[^=·]+[·]?[^=]*=뉴시스\]\s*[가-힣\s]+(기자|특파원|기지)\s*[가-힣\s]*(기자|특파원|기지)\s*=+\s*',
+                    # 대괄호 패턴 (공백 없이 연결된 경우)
+                    r'^\[[^=·]+[·]?[^=]*=뉴시스\][가-힣\s]*(특파원|기자)\s*=+\s*',
+                    r'^\[[^=·]+[·]?[^=]*=뉴스1\][가-힣\s]*(특파원|기자)\s*=+\s*',
+                    r'^\[[^=·]+[·]?[^=]*=연합뉴스\][가-힣\s]*(특파원|기자)\s*=+\s*',
                     # 문장 중간에서도 제거
                     r'\([^=·]+[·]?[^=]*=뉴스1\)\s*[가-힣\s]*(기자|특파원|기지)[가-힣\s]*=+\s*',
                     r'\([^=·]+[·]?[^=]*=뉴스원\)\s*[가-힣\s]*(기자|특파원|기지)[가-힣\s]*=+\s*',
@@ -325,6 +351,12 @@ class TextCleaner:
         cleaned_title = title
         patterns_removed = []
         
+        # 간단한 바이라인 제거 먼저 적용
+        original_title = cleaned_title
+        cleaned_title = self._remove_simple_bylines(cleaned_title)
+        if cleaned_title != original_title:
+            patterns_removed.append("simple_bylines_removal")
+        
         # 언론사별 패턴 적용
         if media_outlet in self.patterns:
             for pattern in self.patterns[media_outlet]['title']:
@@ -347,6 +379,12 @@ class TextCleaner:
         """본문 정제"""
         cleaned_content = content
         patterns_removed = []
+        
+        # 간단한 바이라인 제거 먼저 적용
+        original_content = cleaned_content
+        cleaned_content = self._remove_simple_bylines(cleaned_content)
+        if cleaned_content != original_content:
+            patterns_removed.append("simple_bylines_removal")
         
         # 공통 패턴 적용 (먼저 적용)
         for pattern in self.patterns['common']['content']:

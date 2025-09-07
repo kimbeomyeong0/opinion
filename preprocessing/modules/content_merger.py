@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 제목+본문 통합 모듈
-- title_cleaned와 content_cleaned를 합쳐서 merged_content 생성
+- title_cleaned와 lead_paragraph를 합쳐서 merged_content 생성
 - 임베딩에 최적화된 텍스트 생성
 """
 
@@ -40,26 +40,29 @@ class ContentMerger:
         """제목+본문 통합기 초기화"""
         self.supabase_manager = SupabaseManager()
         
-    def merge_title_content(self, title: str, content: str) -> Tuple[str, str]:
-        """제목과 본문을 통합"""
+    def merge_title_content(self, title: str, lead_paragraph: str = None) -> Tuple[str, str]:
+        """제목과 리드문을 통합 (임베딩 최적화)"""
         title = title.strip() if title else ""
-        content = content.strip() if content else ""
+        lead_paragraph = lead_paragraph.strip() if lead_paragraph else ""
         
-        if title and content:
+        # 리드문 사용
+        text_to_merge = lead_paragraph
+        
+        if title and text_to_merge:
             # 제목 끝에 마침표가 없으면 추가
             if not title.endswith(('.', '!', '?', ':', ';')):
                 title += '.'
             
-            merged = f"{title} {content}"
-            strategy = "title_and_content"
+            merged = f"{title} {text_to_merge}"
+            strategy = "title_and_lead"
             
         elif title:
             merged = title
             strategy = "title_only"
             
-        elif content:
-            merged = content
-            strategy = "content_only"
+        elif text_to_merge:
+            merged = text_to_merge
+            strategy = "lead_only"
             
         else:
             merged = ""
@@ -67,14 +70,14 @@ class ContentMerger:
         
         return merged, strategy
     
-    def calculate_merge_statistics(self, title: str, content: str, merged: str) -> Dict[str, Any]:
+    def calculate_merge_statistics(self, title: str, lead_paragraph: str, merged: str) -> Dict[str, Any]:
         """통합 통계 계산"""
         title_len = len(title) if title else 0
-        content_len = len(content) if content else 0
+        content_len = len(lead_paragraph) if lead_paragraph else 0
         merged_len = len(merged)
         
         title_words = len(title.split()) if title else 0
-        content_words = len(content.split()) if content else 0
+        content_words = len(lead_paragraph.split()) if lead_paragraph else 0
         merged_words = len(merged.split()) if merged else 0
         
         return {
@@ -88,23 +91,23 @@ class ContentMerger:
         }
     
     def merge_single_article(self, article: Dict[str, Any]) -> MergeResult:
-        """단일 기사 제목+본문 통합"""
+        """단일 기사 제목+리드문 통합"""
         try:
             article_id = article.get('id', '')
             title = article.get('title_cleaned', '')
-            content = article.get('content_cleaned', '')
+            lead_paragraph = article.get('lead_paragraph', '')
             
-            # 제목+본문 통합
-            merged_content, merge_strategy = self.merge_title_content(title, content)
+            # 제목+리드문 통합
+            merged_content, merge_strategy = self.merge_title_content(title, lead_paragraph)
             
             # 통계 계산
-            merge_metadata = self.calculate_merge_statistics(title, content, merged_content)
+            merge_metadata = self.calculate_merge_statistics(title, lead_paragraph, merged_content)
             merge_metadata['merge_strategy'] = merge_strategy
             
             return MergeResult(
                 article_id=article_id,
                 original_title=title,
-                original_content=content,
+                original_content=lead_paragraph,
                 merged_content=merged_content,
                 merge_strategy=merge_strategy,
                 merge_metadata=merge_metadata,
@@ -116,7 +119,7 @@ class ContentMerger:
             return MergeResult(
                 article_id=article.get('id', ''),
                 original_title=article.get('title_cleaned', ''),
-                original_content=article.get('content_cleaned', ''),
+                original_content=article.get('lead_paragraph', ''),
                 merged_content='',
                 merge_strategy='error',
                 merge_metadata={},
@@ -133,7 +136,7 @@ class ContentMerger:
             
             while True:
                 query = self.supabase_manager.client.table('articles_cleaned').select(
-                    'id, title_cleaned, content_cleaned, merged_content'
+                    'id, title_cleaned, lead_paragraph, merged_content'
                 )
                 
                 # merged_content가 NULL이거나 빈 문자열인 경우만 조회
