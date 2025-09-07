@@ -38,14 +38,14 @@ class NewsonePoliticsCollector:
         self._playwright = None
         self._browser = None
 
-    async def _get_politics_articles(self, total_limit: int = 130) -> List[Dict]:
+    async def _get_politics_articles(self, total_limit: int = 150) -> List[Dict]:
         """정치 섹션 기사 목록 수집 (페이지네이션 지원)"""
         console.print(f"🔌 뉴스원 정치 섹션 기사 수집 시작 (최대 {total_limit}개)")
         
         all_articles = []
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # start=1부터 start=13까지 각각 10개씩 수집
-            for start_page in range(1, 14):  # 1부터 13까지
+            # start=1부터 start=15까지 각각 10개씩 수집
+            for start_page in range(1, 16):  # 1부터 15까지
                 if len(all_articles) >= total_limit:
                     break
                     
@@ -129,7 +129,7 @@ class NewsonePoliticsCollector:
             console.print(f"❌ 데이터 파싱 실패: {e}")
             return None
 
-    async def _collect_articles(self, total_limit: int = 130):
+    async def _collect_articles(self, total_limit: int = 150):
         """기사 수집"""
         console.print(f"🚀 뉴스원 정치 기사 수집 시작 (최대 {total_limit}개)")
         
@@ -325,7 +325,7 @@ class NewsonePoliticsCollector:
         except Exception as e:
             console.print(f"⚠️ 리소스 정리 중 오류: {str(e)[:50]}")
 
-    async def run(self, total_limit: int = 130):
+    async def run(self, total_limit: int = 150):
         """실행"""
         try:
             console.print(f"🚀 뉴스원 정치 기사 크롤링 시작 (최대 {total_limit}개)")
@@ -346,7 +346,7 @@ class NewsonePoliticsCollector:
 
 async def main():
     collector = NewsonePoliticsCollector()
-    await collector.run(total_limit=130)  # start=1부터 start=13까지 각각 10개씩 총 130개 수집
+    await collector.run(total_limit=150)  # start=1부터 start=15까지 각각 10개씩 총 150개 수집
 
 if __name__ == "__main__":
     asyncio.run(main())

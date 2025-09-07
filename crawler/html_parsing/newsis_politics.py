@@ -29,14 +29,14 @@ class NewsisPoliticsCollector:
         self.semaphore = asyncio.Semaphore(5)  # 동시 처리 제한
         self.supabase_manager = SupabaseManager()
 
-    async def run(self, num_pages=1):
+    async def run(self, num_pages=8):
         console.print("🚀 뉴시스 정치 기사 크롤링 시작")
         await self.collect_articles(num_pages)
         await self.collect_contents_parallel()  # 병렬 처리!
         await self.save_articles()  # DB 저장
         console.print("🎉 완료")
 
-    async def collect_articles(self, num_pages=1):
+    async def collect_articles(self, num_pages=8):
         for page in range(1, num_pages + 1):
             url = f"{LIST_URL}?cid=10300&scid=10301&page={page}"
             console.print(f"📡 목록 요청: {url}")
@@ -251,14 +251,14 @@ class NewsisFastCollector:
         self.articles = []
         self.supabase_manager = SupabaseManager()
 
-    async def run(self, num_pages=1):
+    async def run(self, num_pages=8):
         console.print("🚀 뉴시스 초고속 크롤링 시작")
         await self.collect_articles(num_pages)
         await self.collect_contents_httpx_only()
         await self.save_articles()  # DB 저장
         console.print("🎉 완료")
 
-    async def collect_articles(self, num_pages=1):
+    async def collect_articles(self, num_pages=8):
         async with httpx.AsyncClient() as client:
             for page in range(1, num_pages + 1):
                 url = f"{LIST_URL}?cid=10300&scid=10301&page={page}"
@@ -458,7 +458,7 @@ class NewsisFastCollector:
 async def main():
     console.print("🚀 뉴시스 초고속 크롤링 시작 (httpx만 사용)")
     collector = NewsisFastCollector()
-    await collector.run(num_pages=10)
+    await collector.run(num_pages=8)  # 8페이지에서 각각 20개씩 총 160개 수집 (150개 목표)
     
     # 결과 출력
     console.print(f"\n📋 수집된 기사 {len(collector.articles)}개:")

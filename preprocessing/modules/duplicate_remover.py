@@ -261,7 +261,7 @@ class IntegratedPreprocessor:
                 lead_paragraph = self.lead_extractor.extract_lead_paragraph(article.get('content', ''))
                 
                 cleaned_article = {
-                    'original_article_id': article['id'],
+                    'article_id': article['id'],
                     'title_cleaned': article.get('title', ''),
                     'lead_paragraph': lead_paragraph,
                     'preprocessing_metadata': {

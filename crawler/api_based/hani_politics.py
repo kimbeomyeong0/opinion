@@ -187,7 +187,7 @@ class HaniPoliticsCollector:
             console.print(f"❌ 기사 데이터 파싱 실패: {e}")
             return None
     
-    async def collect_articles(self, num_pages: int = 4):
+    async def collect_articles(self, num_pages: int = 10):
         """기사 수집"""
         console.print(f"📄 {num_pages}개 페이지에서 기사 수집 시작...")
         
@@ -283,7 +283,7 @@ class HaniPoliticsCollector:
         console.print(f"  ⚠️ 중복 스킵: {skip_count}개")
         console.print(f"  📈 성공률: {success_count/len(self.articles)*100:.1f}%")
     
-    async def run(self, num_pages: int = 4):
+    async def run(self, num_pages: int = 10):
         """크롤러 실행"""
         try:
             console.print("🚀 한겨레 정치 기사 크롤링 시작")
@@ -310,7 +310,7 @@ class HaniPoliticsCollector:
 
 async def main():
     collector = HaniPoliticsCollector()
-    await collector.run(num_pages=5)  # 5페이지에서 각각 15개씩 총 75개 수집
+    await collector.run(num_pages=10)  # 10페이지에서 각각 15개씩 총 150개 수집
 
 if __name__ == "__main__":
     asyncio.run(main())

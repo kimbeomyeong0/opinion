@@ -130,7 +130,7 @@ class SupabaseManager:
         try:
             # merged_content가 있는 기사만 조회
             result = self.client.table('articles_cleaned')\
-                .select('id, original_article_id, merged_content, title_cleaned, lead_paragraph')\
+                .select('id, article_id, merged_content, title_cleaned, lead_paragraph')\
                 .not_.is_('merged_content', 'null')\
                 .neq('merged_content', '')\
                 .order('created_at', desc=True)\

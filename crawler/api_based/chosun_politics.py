@@ -40,7 +40,7 @@ class ChosunPoliticsCollector:
         self._playwright = None
         self._browser = None
 
-    async def _get_politics_article_ids(self, max_articles: int = 50) -> List[str]:
+    async def _get_politics_article_ids(self, max_articles: int = 150) -> List[str]:
         """정치 섹션 기사 ID 목록 수집"""
         console.print("🔌 정치 섹션 기사 ID 수집 시작...")
         
@@ -388,7 +388,7 @@ class ChosunPoliticsCollector:
             console.print(f"❌ 데이터 파싱 실패: {e}")
             return None
 
-    async def _collect_articles(self, max_articles: int = 100):
+    async def _collect_articles(self, max_articles: int = 150):
         """기사 수집 (ID 수집 → 상세 정보 수집) - 병렬 처리"""
         console.print(f"🚀 조선일보 정치 기사 수집 시작 (최대 {max_articles}개)")
         
@@ -621,7 +621,7 @@ class ChosunPoliticsCollector:
         except Exception as e:
             console.print(f"⚠️ 리소스 정리 중 오류: {str(e)[:50]}")
 
-    async def run(self, max_articles: int = 50):
+    async def run(self, max_articles: int = 150):
         """실행"""
         try:
             console.print(f"🚀 조선일보 정치 기사 크롤링 시작 (최대 {max_articles}개)")
@@ -642,7 +642,7 @@ class ChosunPoliticsCollector:
 
 async def main():
     collector = ChosunPoliticsCollector()
-    await collector.run(max_articles=100)
+    await collector.run(max_articles=150)
 
 if __name__ == "__main__":
     asyncio.run(main())

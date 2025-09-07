@@ -27,7 +27,7 @@ class KhanPoliticsCollector:
         self.articles = []
         self.supabase_manager = SupabaseManager()
         
-    async def run(self, num_pages: int = 5):
+    async def run(self, num_pages: int = 15):
         """크롤링 실행"""
         try:
             console.print(f"🚀 {self.media_name} 정치 기사 크롤링 시작")
@@ -52,7 +52,7 @@ class KhanPoliticsCollector:
         except Exception as e:
             console.print(f"❌ 크롤링 중 오류 발생: {str(e)}")
     
-    async def collect_articles(self, num_pages: int = 5):
+    async def collect_articles(self, num_pages: int = 15):
         """기사 목록 수집"""
         console.print(f"📄 {num_pages}개 페이지에서 기사 수집 시작...")
         
@@ -345,7 +345,7 @@ class KhanPoliticsCollector:
 
 async def main():
     collector = KhanPoliticsCollector()
-    await collector.run(num_pages=10)  # 10페이지에서 각각 10개씩 총 100개 기사 수집
+    await collector.run(num_pages=15)  # 15페이지에서 각각 10개씩 총 150개 기사 수집
 
 if __name__ == "__main__":
     asyncio.run(main())

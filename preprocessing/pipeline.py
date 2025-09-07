@@ -503,7 +503,7 @@ class PreprocessingPipeline:
         while True:
             try:
                 articles_result = self.supabase_manager.client.table('articles_cleaned').select(
-                    'id, original_article_id, title_cleaned, lead_paragraph'
+                    'id, article_id, title_cleaned, lead_paragraph'
                 ).or_(
                     'preprocessing_metadata->>text_cleaned.is.null,preprocessing_metadata->>text_cleaned.eq.false'
                 ).order('created_at').range(offset, offset + page_size - 1).execute()
@@ -566,7 +566,7 @@ class PreprocessingPipeline:
                             media_cache: Dict[str, str]) -> Optional[Dict[str, Any]]:
         """단일 기사 정제 처리 (리드문 기반)"""
         try:
-            media_outlet = media_cache.get(article['original_article_id'], 'unknown')
+            media_outlet = media_cache.get(article['article_id'], 'unknown')
             
             # 제목과 리드문 정제
             cleaned_title, title_patterns = self._clean_article_title(article, media_outlet)

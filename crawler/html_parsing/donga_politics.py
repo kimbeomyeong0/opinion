@@ -39,7 +39,7 @@ class DongaPoliticsCollector:
         self._playwright = None
         self._browser = None
 
-    def _get_page_urls(self, num_pages: int = 4) -> List[str]:
+    def _get_page_urls(self, num_pages: int = 15) -> List[str]:
         """페이지 URL 목록 생성 (p=1, 11, 21, 31...)"""
         urls = []
         for i in range(num_pages):
@@ -209,7 +209,7 @@ class DongaPoliticsCollector:
                 console.print(f"❌ 페이지 수집 실패: {e}")
                 return []
 
-    async def _collect_articles(self, num_pages: int = 4):
+    async def _collect_articles(self, num_pages: int = 15):
         """기사 수집 (페이지네이션)"""
         console.print(f"🚀 동아일보 정치 기사 수집 시작 (최대 {num_pages}페이지)")
         
@@ -499,7 +499,7 @@ class DongaPoliticsCollector:
         except Exception as e:
             console.print(f"⚠️ 리소스 정리 중 오류: {str(e)[:50]}")
 
-    async def run(self, num_pages: int = 4):
+    async def run(self, num_pages: int = 15):
         """실행"""
         try:
             console.print(f"🚀 동아일보 정치 기사 크롤링 시작 (최대 {num_pages}페이지)")
@@ -520,7 +520,7 @@ class DongaPoliticsCollector:
 
 async def main():
     collector = DongaPoliticsCollector()
-    await collector.run(num_pages=10)  # 10페이지에서 각각 10개씩 총 100개 수집
+    await collector.run(num_pages=15)  # 15페이지에서 각각 10개씩 총 150개 수집
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -43,7 +43,7 @@ class OhmyNewsPoliticsCollector:
             "Upgrade-Insecure-Requests": "1",
         }
 
-    async def run(self, num_pages=10):
+    async def run(self, num_pages=8):
         console.print(f"🚀 {self.media_name} 정치 기사 크롤링 시작")
 
         await self.collect_articles(num_pages)
@@ -314,7 +314,7 @@ class OhmyNewsPoliticsCollector:
 
 async def main():
     collector = OhmyNewsPoliticsCollector()
-    await collector.run(num_pages=10)
+    await collector.run(num_pages=8)  # 8페이지에서 각각 20개씩 총 160개 수집 (150개 목표)
 
 if __name__ == "__main__":
     asyncio.run(main())
