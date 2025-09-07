@@ -12,7 +12,7 @@ from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn
 from rich.table import Table
 from rich.panel import Panel
 
-from embeddings.config import get_config
+from .config import get_config
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
