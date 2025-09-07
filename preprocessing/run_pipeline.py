@@ -123,7 +123,41 @@ def print_full_result(result):
         print(f"  처리: {stage_result.processed_articles}/{stage_result.total_articles}")
         print(f"  시간: {stage_result.processing_time:.2f}초")
 
+def validate_environment():
+    """실행 환경 검증"""
+    try:
+        # Python 버전 확인
+        import sys
+        if sys.version_info < (3, 8):
+            print("❌ Python 3.8 이상이 필요합니다.")
+            return False
+        
+        # 필수 모듈 확인
+        required_modules = ['supabase', 'dataclasses', 'typing']
+        missing_modules = []
+        
+        for module in required_modules:
+            try:
+                __import__(module)
+            except ImportError:
+                missing_modules.append(module)
+        
+        if missing_modules:
+            print(f"❌ 필수 모듈이 없습니다: {', '.join(missing_modules)}")
+            print("다음 명령어로 설치하세요: pip install -r requirements.txt")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ 환경 검증 실패: {e}")
+        return False
+
 def main():
+    # 환경 검증
+    if not validate_environment():
+        return 1
+    
     parser = argparse.ArgumentParser(
         description='뉴스 기사 전처리 파이프라인',
         add_help=False  # 커스텀 help 사용
@@ -139,28 +173,43 @@ def main():
                        help='현재 상태만 확인')
     parser.add_argument('--help', action='store_true',
                        help='도움말 출력')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='실제 실행 없이 시뮬레이션만 실행')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                       help='상세 로그 출력')
     
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        return 1
     
     # 도움말 출력
     if args.help:
         print_banner()
         print_help()
-        return
+        return 0
     
     # 파이프라인 초기화
     try:
         pipeline = PreprocessingPipeline()
     except Exception as e:
         print(f"❌ 파이프라인 초기화 실패: {e}")
+        print("💡 해결 방법:")
+        print("  1. Supabase 연결 설정을 확인하세요")
+        print("  2. 환경 변수 SUPABASE_URL, SUPABASE_KEY가 설정되었는지 확인하세요")
+        print("  3. 네트워크 연결을 확인하세요")
         return 1
     
     print_banner()
     
     # 상태 확인만 실행
     if args.status:
-        print_status(pipeline)
-        return 0
+        try:
+            print_status(pipeline)
+            return 0
+        except Exception as e:
+            print(f"❌ 상태 확인 실패: {e}")
+            return 1
     
     # 단계별 실행
     if args.stage:
@@ -172,27 +221,51 @@ def main():
             return 1
         
         print(f"🚀 단계별 실행: {args.stage}")
-        print_status(pipeline)
         
-        result = pipeline.run_single_stage(args.stage)
-        print_stage_result(result)
-        
-        return 0 if result.success else 1
+        try:
+            print_status(pipeline)
+            
+            if args.dry_run:
+                print("🔍 드라이런 모드: 실제 실행 없이 시뮬레이션만 수행")
+                return 0
+            
+            result = pipeline.run_single_stage(args.stage)
+            print_stage_result(result)
+            
+            return 0 if result.success else 1
+            
+        except Exception as e:
+            print(f"❌ 단계 실행 실패: {e}")
+            return 1
     
     # 전체 파이프라인 실행 (기본값)
     print("🚀 전체 파이프라인 실행")
-    print_status(pipeline)
     
-    skip_stages = args.skip or []
-    if skip_stages:
-        print(f"⏭️  건너뛸 단계: {', '.join(skip_stages)}")
-    
-    print("\n" + "🔄 파이프라인 시작..." + "\n")
-    
-    result = pipeline.run_full_pipeline(skip_stages=skip_stages)
-    print_full_result(result)
-    
-    return 0 if result.overall_success else 1
+    try:
+        print_status(pipeline)
+        
+        skip_stages = args.skip or []
+        if skip_stages:
+            print(f"⏭️  건너뛸 단계: {', '.join(skip_stages)}")
+        
+        if args.dry_run:
+            print("🔍 드라이런 모드: 실제 실행 없이 시뮬레이션만 수행")
+            return 0
+        
+        print("\n" + "🔄 파이프라인 시작..." + "\n")
+        
+        result = pipeline.run_full_pipeline(skip_stages=skip_stages)
+        print_full_result(result)
+        
+        return 0 if result.overall_success else 1
+        
+    except Exception as e:
+        print(f"❌ 파이프라인 실행 실패: {e}")
+        print("💡 해결 방법:")
+        print("  1. 데이터베이스 연결을 확인하세요")
+        print("  2. 충분한 디스크 공간이 있는지 확인하세요")
+        print("  3. 메모리 사용량을 확인하세요")
+        return 1
 
 if __name__ == "__main__":
     try:

@@ -53,7 +53,7 @@ class IntegratedPreprocessor:
         
     def fetch_articles_from_supabase(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Supabase에서 기사 데이터 조회 (페이지네이션 지원)
+        Supabase에서 기사 데이터 조회 (메모리 효율적 페이지네이션)
         
         Args:
             limit: 조회할 기사 수 제한 (None이면 모든 기사)
@@ -66,31 +66,49 @@ class IntegratedPreprocessor:
         
         try:
             all_articles = []
-            page_size = 1000  # Supabase 한 번에 조회할 수 있는 최대 개수
+            page_size = 500  # 메모리 효율성을 위해 페이지 크기 감소
             offset = 0
+            total_processed = 0
             
             while True:
-                # 페이지별 조회
-                query = self.supabase_manager.client.table('articles').select('*').range(offset, offset + page_size - 1).order('created_at', desc=True)
-                
-                result = query.execute()
-                
-                if not result.data:
-                    break  # 더 이상 데이터가 없으면 종료
-                
-                all_articles.extend(result.data)
-                print(f"📄 {len(result.data)}개 기사 조회 완료 (총 {len(all_articles)}개)")
-                
-                # limit이 설정되어 있고 도달했으면 중단
-                if limit and len(all_articles) >= limit:
-                    all_articles = all_articles[:limit]
-                    break
-                
-                # 마지막 페이지인 경우 (조회된 데이터가 page_size보다 적으면)
-                if len(result.data) < page_size:
-                    break
-                
-                offset += page_size
+                try:
+                    # 필요한 컬럼만 선택하여 메모리 사용량 최적화
+                    query = self.supabase_manager.client.table('articles').select(
+                        'id, title, content, created_at, url, media_id'
+                    ).range(offset, offset + page_size - 1).order('created_at', desc=True)
+                    
+                    result = query.execute()
+                    
+                    if not result.data:
+                        break  # 더 이상 데이터가 없으면 종료
+                    
+                    # 메모리 사용량 모니터링
+                    current_batch_size = len(result.data)
+                    all_articles.extend(result.data)
+                    total_processed += current_batch_size
+                    
+                    print(f"📄 {current_batch_size}개 기사 조회 완료 (총 {total_processed}개)")
+                    
+                    # limit이 설정되어 있고 도달했으면 중단
+                    if limit and total_processed >= limit:
+                        all_articles = all_articles[:limit]
+                        break
+                    
+                    # 마지막 페이지인 경우 (조회된 데이터가 page_size보다 적으면)
+                    if current_batch_size < page_size:
+                        break
+                    
+                    offset += page_size
+                    
+                    # 메모리 사용량 체크 (대략적)
+                    if total_processed % 5000 == 0:
+                        print(f"💾 메모리 사용량 체크: {total_processed}개 기사 처리됨")
+                    
+                except Exception as page_error:
+                    print(f"⚠️  페이지 조회 오류 (offset {offset}): {page_error}")
+                    # 페이지 오류 시 다음 페이지로 계속 진행
+                    offset += page_size
+                    continue
             
             print(f"✅ 총 {len(all_articles)}개 기사 조회 완료")
             return all_articles

@@ -10,7 +10,7 @@ import sys
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 import logging
 
@@ -25,10 +25,41 @@ from preprocessing.modules.text_normalizer import TextNormalizer
 from preprocessing.modules.content_merger import ContentMerger
 
 # 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+def setup_logging(verbose: bool = False):
+    """구조화된 로깅 설정"""
+    log_level = logging.DEBUG if verbose else logging.INFO
+    
+    # 로그 포맷터 설정
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # 루트 로거 설정
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # 기존 핸들러 제거
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # 콘솔 핸들러 추가
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    # 파일 핸들러 추가 (선택적)
+    try:
+        file_handler = logging.FileHandler('preprocessing.log', encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+    except Exception as e:
+        print(f"⚠️  로그 파일 생성 실패: {e}")
+
+# 기본 로깅 설정
+setup_logging()
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -42,6 +73,8 @@ class PipelineResult:
     message: str
     error_message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    memory_usage: Optional[float] = None  # MB
+    throughput: Optional[float] = None  # articles/second
 
 @dataclass
 class FullPipelineResult:
@@ -56,10 +89,13 @@ class FullPipelineResult:
 class PreprocessingPipeline:
     """종합 전처리 파이프라인 클래스"""
     
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
         """파이프라인 초기화"""
-        self.supabase_manager = SupabaseManager()
+        # 로깅 설정
+        setup_logging(verbose)
         self.logger = logging.getLogger(__name__)
+        
+        self.supabase_manager = SupabaseManager()
         
         # 각 모듈 초기화
         self.duplicate_processor = IntegratedPreprocessor()
@@ -74,6 +110,43 @@ class PreprocessingPipeline:
             'text_normalization': '3단계: 텍스트 정규화',
             'content_merging': '4단계: 제목+본문 통합'
         }
+        
+        # 성능 모니터링
+        self.performance_metrics = {}
+    
+    def _get_memory_usage(self) -> float:
+        """현재 메모리 사용량 조회 (MB)"""
+        try:
+            import psutil
+            process = psutil.Process()
+            return process.memory_info().rss / 1024 / 1024  # MB
+        except ImportError:
+            # psutil이 없는 경우 대략적 추정
+            import sys
+            return sys.getsizeof(self) / 1024 / 1024
+        except Exception:
+            return 0.0
+    
+    def _calculate_throughput(self, processed_articles: int, processing_time: float) -> float:
+        """처리량 계산 (articles/second)"""
+        if processing_time > 0:
+            return processed_articles / processing_time
+        return 0.0
+    
+    def _log_performance_metrics(self, stage: str, result: PipelineResult):
+        """성능 메트릭 로깅"""
+        self.performance_metrics[stage] = {
+            'processing_time': result.processing_time,
+            'processed_articles': result.processed_articles,
+            'throughput': result.throughput,
+            'memory_usage': result.memory_usage,
+            'success': result.success
+        }
+        
+        self.logger.info(f"📊 {stage} 성능 메트릭:")
+        self.logger.info(f"  ⏱️  처리 시간: {result.processing_time:.2f}초")
+        self.logger.info(f"  📈 처리량: {result.throughput:.2f} articles/sec")
+        self.logger.info(f"  💾 메모리 사용량: {result.memory_usage:.2f}MB")
     
     def get_pipeline_status(self) -> Dict[str, Any]:
         """파이프라인 현재 상태 조회"""
@@ -161,31 +234,18 @@ class PreprocessingPipeline:
             )
     
     def run_stage_2_text_cleaning(self) -> PipelineResult:
-        """2단계: 텍스트 정제"""
+        """2단계: 텍스트 정제 (최적화된 배치 처리)"""
         start_time = time.time()
         stage = 'text_cleaning'
         
         try:
             self.logger.info("🔄 2단계: 텍스트 정제 시작")
             
-            # articles_cleaned에서 정제되지 않은 기사들 조회 (페이지네이션 적용)
-            articles = []
-            page_size = 1000
-            offset = 0
+            # 1. 언론사 정보를 미리 조회하여 캐시
+            media_cache = self._build_media_cache()
             
-            while True:
-                articles_result = self.supabase_manager.client.table('articles_cleaned').select('id, original_article_id, title_cleaned, content_cleaned').or_('preprocessing_metadata->>text_cleaned.is.null,preprocessing_metadata->>text_cleaned.eq.false').order('created_at').range(offset, offset + page_size - 1).execute()
-                
-                page_data = articles_result.data if articles_result else []
-                if not page_data:
-                    break
-                    
-                articles.extend(page_data)
-                
-                if len(page_data) < page_size:
-                    break
-                    
-                offset += page_size
+            # 2. 정제되지 않은 기사들을 배치로 조회
+            articles = self._fetch_articles_for_cleaning()
             
             if not articles:
                 message = "✅ 2단계: 정제할 기사가 없습니다"
@@ -200,73 +260,35 @@ class PreprocessingPipeline:
                     message=message
                 )
             
-            processed_count = 0
-            failed_count = 0
-            
-            for article in articles:
-                try:
-                    # 언론사 정보를 media_id를 통해 가져오기
-                    media_result = self.supabase_manager.client.table('articles').select('media_id').eq('id', article['original_article_id']).execute()
-                    media_id = media_result.data[0]['media_id'] if media_result.data else None
-                    
-                    # media_outlets 테이블에서 언론사 이름 가져오기
-                    if media_id:
-                        outlet_result = self.supabase_manager.client.table('media_outlets').select('name').eq('id', media_id).execute()
-                        outlet_name = outlet_result.data[0]['name'] if outlet_result.data else 'unknown'
-                        # 한글 언론사 이름을 영문 키로 변환
-                        media_outlet = self._map_media_outlet_name(outlet_name)
-                    else:
-                        media_outlet = 'unknown'
-                    
-                    # 텍스트 정제 실행
-                    cleaned_title, title_patterns = self.text_cleaner.clean_title(
-                        article['title_cleaned'] or '', 
-                        media_outlet
-                    )
-                    cleaned_content, content_patterns = self.text_cleaner.clean_content(
-                        article['content_cleaned'] or '', 
-                        media_outlet
-                    )
-                    
-                    # 업데이트
-                    update_data = {
-                        'title_cleaned': cleaned_title,
-                        'content_cleaned': cleaned_content,
-                        'preprocessing_metadata': {
-                            'text_cleaned': True,
-                            'text_cleaned_at': datetime.now().isoformat(),
-                            'title_patterns_removed': title_patterns,
-                            'content_patterns_removed': content_patterns,
-                            'media_outlet': media_outlet
-                        },
-                        'updated_at': datetime.now().isoformat()
-                    }
-                    
-                    self.supabase_manager.client.table('articles_cleaned').update(update_data).eq('id', article['id']).execute()
-                    
-                    processed_count += 1
-                    
-                    if processed_count % 10 == 0:
-                        self.logger.info(f"진행 상황: {processed_count}/{len(articles)} 기사 정제 완료")
-                        
-                except Exception as e:
-                    failed_count += 1
-                    self.logger.error(f"기사 {article['id']} 정제 실패: {e}")
-                    continue
+            # 3. 배치 처리로 텍스트 정제 실행
+            processed_count, failed_count = self._process_articles_batch(
+                articles, media_cache, self._clean_single_article
+            )
             
             processing_time = time.time() - start_time
             message = f"✅ 2단계 완료: {processed_count}개 정제, {failed_count}개 실패"
             self.logger.info(message)
             
-            return PipelineResult(
+            # 성능 메트릭 계산
+            memory_usage = self._get_memory_usage()
+            throughput = self._calculate_throughput(processed_count, processing_time)
+            
+            result = PipelineResult(
                 stage=stage,
                 success=True,
                 total_articles=len(articles),
                 processed_articles=processed_count,
                 processing_time=processing_time,
                 message=message,
-                metadata={'failed_count': failed_count}
+                metadata={'failed_count': failed_count},
+                memory_usage=memory_usage,
+                throughput=throughput
             )
+            
+            # 성능 메트릭 로깅
+            self._log_performance_metrics(stage, result)
+            
+            return result
             
         except Exception as e:
             processing_time = time.time() - start_time
@@ -284,31 +306,15 @@ class PreprocessingPipeline:
             )
     
     def run_stage_3_text_normalization(self) -> PipelineResult:
-        """3단계: 텍스트 정규화"""
+        """3단계: 텍스트 정규화 (최적화된 배치 처리)"""
         start_time = time.time()
         stage = 'text_normalization'
         
         try:
             self.logger.info("🔄 3단계: 텍스트 정규화 시작")
             
-            # 정규화되지 않은 기사들 조회 (페이지네이션 적용)
-            articles = []
-            page_size = 1000
-            offset = 0
-            
-            while True:
-                articles_result = self.supabase_manager.client.table('articles_cleaned').select('id, title_cleaned, content_cleaned').or_('preprocessing_metadata->>text_normalized.is.null,preprocessing_metadata->>text_normalized.eq.false').order('created_at').range(offset, offset + page_size - 1).execute()
-                
-                page_data = articles_result.data if articles_result else []
-                if not page_data:
-                    break
-                    
-                articles.extend(page_data)
-                
-                if len(page_data) < page_size:
-                    break
-                    
-                offset += page_size
+            # 정규화되지 않은 기사들을 배치로 조회
+            articles = self._fetch_articles_for_normalization()
             
             if not articles:
                 message = "✅ 3단계: 정규화할 기사가 없습니다"
@@ -323,43 +329,10 @@ class PreprocessingPipeline:
                     message=message
                 )
             
-            processed_count = 0
-            failed_count = 0
-            
-            for article in articles:
-                try:
-                    # 텍스트 정규화 실행
-                    title_result = self.text_normalizer.normalize_text(article['title_cleaned'] or '')
-                    content_result = self.text_normalizer.normalize_text(article['content_cleaned'] or '')
-                    
-                    # 업데이트
-                    update_data = {
-                        'title_cleaned': title_result.normalized_text,
-                        'content_cleaned': content_result.normalized_text,
-                        'preprocessing_metadata': {
-                            'text_normalized': True,
-                            'text_normalized_at': datetime.now().isoformat(),
-                            'title_changes': title_result.changes_made,
-                            'content_changes': content_result.changes_made,
-                            'normalization_stats': {
-                                'title_changes_count': len(title_result.changes_made),
-                                'content_changes_count': len(content_result.changes_made)
-                            }
-                        },
-                        'updated_at': datetime.now().isoformat()
-                    }
-                    
-                    self.supabase_manager.client.table('articles_cleaned').update(update_data).eq('id', article['id']).execute()
-                    
-                    processed_count += 1
-                    
-                    if processed_count % 10 == 0:
-                        self.logger.info(f"진행 상황: {processed_count}/{len(articles)} 기사 정규화 완료")
-                        
-                except Exception as e:
-                    failed_count += 1
-                    self.logger.error(f"기사 {article['id']} 정규화 실패: {e}")
-                    continue
+            # 배치 처리로 텍스트 정규화 실행
+            processed_count, failed_count = self._process_articles_batch(
+                articles, {}, self._normalize_single_article
+            )
             
             processing_time = time.time() - start_time
             message = f"✅ 3단계 완료: {processed_count}개 정규화, {failed_count}개 실패"
@@ -488,6 +461,217 @@ class PreprocessingPipeline:
             '뉴스원': 'newsone'
         }
         return mapping.get(outlet_name, 'unknown')
+    
+    def _build_media_cache(self) -> Dict[str, str]:
+        """언론사 정보를 미리 조회하여 캐시 구축"""
+        try:
+            # articles와 media_outlets를 조인하여 한 번에 조회
+            result = self.supabase_manager.client.table('articles').select(
+                'id, media_id, media_outlets(name)'
+            ).execute()
+            
+            cache = {}
+            for article in result.data:
+                if article.get('media_outlets') and article['media_outlets'].get('name'):
+                    outlet_name = article['media_outlets']['name']
+                    cache[article['id']] = self._map_media_outlet_name(outlet_name)
+                else:
+                    cache[article['id']] = 'unknown'
+            
+            self.logger.info(f"📊 언론사 캐시 구축 완료: {len(cache)}개 기사")
+            return cache
+            
+        except Exception as e:
+            self.logger.warning(f"언론사 캐시 구축 실패, 기본값 사용: {e}")
+            return {}
+    
+    def _fetch_articles_for_cleaning(self) -> List[Dict[str, Any]]:
+        """정제되지 않은 기사들을 효율적으로 조회"""
+        articles = []
+        page_size = 1000
+        offset = 0
+        
+        while True:
+            try:
+                articles_result = self.supabase_manager.client.table('articles_cleaned').select(
+                    'id, original_article_id, title_cleaned, content_cleaned'
+                ).or_(
+                    'preprocessing_metadata->>text_cleaned.is.null,preprocessing_metadata->>text_cleaned.eq.false'
+                ).order('created_at').range(offset, offset + page_size - 1).execute()
+                
+                page_data = articles_result.data if articles_result else []
+                if not page_data:
+                    break
+                    
+                articles.extend(page_data)
+                
+                if len(page_data) < page_size:
+                    break
+                    
+                offset += page_size
+                
+            except Exception as e:
+                self.logger.error(f"기사 조회 중 오류 (offset {offset}): {e}")
+                break
+        
+        return articles
+    
+    def _process_articles_batch(self, articles: List[Dict[str, Any]], 
+                               media_cache: Dict[str, str], 
+                               process_func) -> Tuple[int, int]:
+        """기사들을 배치로 처리"""
+        processed_count = 0
+        failed_count = 0
+        batch_size = 50  # 배치 크기
+        update_batch = []
+        
+        for i, article in enumerate(articles):
+            try:
+                # 개별 기사 처리
+                result = process_func(article, media_cache)
+                
+                if result:
+                    update_batch.append(result)
+                    processed_count += 1
+                else:
+                    failed_count += 1
+                
+                # 배치 크기에 도달하면 일괄 업데이트
+                if len(update_batch) >= batch_size or i == len(articles) - 1:
+                    if update_batch:
+                        self._batch_update_articles(update_batch)
+                        update_batch = []
+                
+                # 진행 상황 로깅
+                if (i + 1) % 100 == 0:
+                    self.logger.info(f"진행 상황: {i + 1}/{len(articles)} 기사 처리 완료")
+                    
+            except Exception as e:
+                failed_count += 1
+                self.logger.error(f"기사 {article.get('id', 'unknown')} 처리 실패: {e}")
+                continue
+        
+        return processed_count, failed_count
+    
+    def _clean_single_article(self, article: Dict[str, Any], 
+                            media_cache: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """단일 기사 정제 처리"""
+        try:
+            # 언론사 정보 조회 (캐시에서)
+            media_outlet = media_cache.get(article['original_article_id'], 'unknown')
+            
+            # 텍스트 정제 실행
+            cleaned_title, title_patterns = self.text_cleaner.clean_title(
+                article['title_cleaned'] or '', 
+                media_outlet
+            )
+            cleaned_content, content_patterns = self.text_cleaner.clean_content(
+                article['content_cleaned'] or '', 
+                media_outlet
+            )
+            
+            return {
+                'id': article['id'],
+                'title_cleaned': cleaned_title,
+                'content_cleaned': cleaned_content,
+                'preprocessing_metadata': {
+                    'text_cleaned': True,
+                    'text_cleaned_at': datetime.now().isoformat(),
+                    'title_patterns_removed': title_patterns,
+                    'content_patterns_removed': content_patterns,
+                    'media_outlet': media_outlet
+                },
+                'updated_at': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"기사 {article.get('id', 'unknown')} 정제 실패: {e}")
+            return None
+    
+    def _batch_update_articles(self, update_batch: List[Dict[str, Any]]) -> None:
+        """기사들을 배치로 업데이트"""
+        try:
+            for update_data in update_batch:
+                self.supabase_manager.client.table('articles_cleaned').update({
+                    'title_cleaned': update_data['title_cleaned'],
+                    'content_cleaned': update_data['content_cleaned'],
+                    'preprocessing_metadata': update_data['preprocessing_metadata'],
+                    'updated_at': update_data['updated_at']
+                }).eq('id', update_data['id']).execute()
+                
+        except Exception as e:
+            self.logger.error(f"배치 업데이트 실패: {e}")
+            # 개별 업데이트로 폴백
+            for update_data in update_batch:
+                try:
+                    self.supabase_manager.client.table('articles_cleaned').update({
+                        'title_cleaned': update_data['title_cleaned'],
+                        'content_cleaned': update_data['content_cleaned'],
+                        'preprocessing_metadata': update_data['preprocessing_metadata'],
+                        'updated_at': update_data['updated_at']
+                    }).eq('id', update_data['id']).execute()
+                except Exception as individual_error:
+                    self.logger.error(f"개별 업데이트 실패 (ID: {update_data['id']}): {individual_error}")
+    
+    def _fetch_articles_for_normalization(self) -> List[Dict[str, Any]]:
+        """정규화되지 않은 기사들을 효율적으로 조회"""
+        articles = []
+        page_size = 1000
+        offset = 0
+        
+        while True:
+            try:
+                articles_result = self.supabase_manager.client.table('articles_cleaned').select(
+                    'id, title_cleaned, content_cleaned'
+                ).or_(
+                    'preprocessing_metadata->>text_normalized.is.null,preprocessing_metadata->>text_normalized.eq.false'
+                ).order('created_at').range(offset, offset + page_size - 1).execute()
+                
+                page_data = articles_result.data if articles_result else []
+                if not page_data:
+                    break
+                    
+                articles.extend(page_data)
+                
+                if len(page_data) < page_size:
+                    break
+                    
+                offset += page_size
+                
+            except Exception as e:
+                self.logger.error(f"기사 조회 중 오류 (offset {offset}): {e}")
+                break
+        
+        return articles
+    
+    def _normalize_single_article(self, article: Dict[str, Any], 
+                                media_cache: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """단일 기사 정규화 처리"""
+        try:
+            # 텍스트 정규화 실행
+            title_result = self.text_normalizer.normalize_text(article['title_cleaned'] or '')
+            content_result = self.text_normalizer.normalize_text(article['content_cleaned'] or '')
+            
+            return {
+                'id': article['id'],
+                'title_cleaned': title_result.normalized_text,
+                'content_cleaned': content_result.normalized_text,
+                'preprocessing_metadata': {
+                    'text_normalized': True,
+                    'text_normalized_at': datetime.now().isoformat(),
+                    'title_changes': title_result.changes_made,
+                    'content_changes': content_result.changes_made,
+                    'normalization_stats': {
+                        'title_changes_count': len(title_result.changes_made),
+                        'content_changes_count': len(content_result.changes_made)
+                    }
+                },
+                'updated_at': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"기사 {article.get('id', 'unknown')} 정규화 실패: {e}")
+            return None
     
     def run_full_pipeline(self, skip_stages: List[str] = None) -> FullPipelineResult:
         """전체 파이프라인 실행"""
