@@ -39,7 +39,7 @@ class IntegratedPreprocessor:
     
     def __init__(self, title_threshold: float = 1.0, content_threshold: float = 0.95, 
                  min_sentences: int = 3, min_content_length: int = 100, 
-                 max_lead_sentences: int = 3):
+                 max_lead_sentences: int = 3, date_filter=None):
         """
         초기화
         
@@ -54,6 +54,7 @@ class IntegratedPreprocessor:
         self.similarity_calculator = SimilarityCalculator(title_threshold, content_threshold)
         self.basic_filter = BasicFilter(min_sentences, min_content_length)
         self.lead_extractor = LeadExtractor(max_lead_sentences)
+        self.date_filter = date_filter
         
     def fetch_articles_from_supabase(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -69,32 +70,81 @@ class IntegratedPreprocessor:
             raise Exception("Supabase 클라이언트가 초기화되지 않았습니다.")
         
         try:
+            # 먼저 이미 전처리된 기사 ID들을 가져옴
+            print("🔍 이미 전처리된 기사 확인 중...")
+            processed_result = self.supabase_manager.client.table('articles_cleaned').select('article_id').execute()
+            processed_ids = set(item['article_id'] for item in processed_result.data)
+            print(f"✅ {len(processed_ids)}개 기사가 이미 전처리됨")
+            
             all_articles = []
             page_size = 500  # 메모리 효율성을 위해 페이지 크기 감소
             offset = 0
             total_processed = 0
+            total_filtered = 0
             
             while True:
                 try:
                     # 필요한 컬럼만 선택하여 메모리 사용량 최적화
                     query = self.supabase_manager.client.table('articles').select(
-                        'id, title, content, created_at, url, media_id'
-                    ).range(offset, offset + page_size - 1).order('created_at', desc=True)
+                        'id, title, content, published_at, url, media_id'
+                    ).order('published_at', desc=True)
+                    
+                    # 날짜 필터링 적용
+                    if self.date_filter:
+                        from datetime import datetime, timedelta
+                        import pytz
+                        
+                        kct = pytz.timezone('Asia/Seoul')
+                        utc = pytz.UTC
+                        
+                        if self.date_filter == 'yesterday':
+                            # KCT 기준 전날 00:00-23:59
+                            kct_yesterday = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+                            kct_start = kct_yesterday
+                            kct_end = kct_yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+                            
+                            # UTC로 변환
+                            utc_start = kct_start.astimezone(utc)
+                            utc_end = kct_end.astimezone(utc)
+                            
+                            query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                            
+                        elif self.date_filter == 'today':
+                            # KCT 기준 오늘 00:00-현재
+                            kct_today = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0)
+                            kct_start = kct_today
+                            kct_end = datetime.now(kct)
+                            
+                            # UTC로 변환
+                            utc_start = kct_start.astimezone(utc)
+                            utc_end = kct_end.astimezone(utc)
+                            
+                            query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                    
+                    query = query.range(offset, offset + page_size - 1)
                     
                     result = query.execute()
                     
                     if not result.data:
                         break  # 더 이상 데이터가 없으면 종료
                     
-                    # 메모리 사용량 모니터링
+                    # 이미 전처리된 기사 제외
+                    filtered_articles = [
+                        article for article in result.data 
+                        if article['id'] not in processed_ids
+                    ]
+                    
                     current_batch_size = len(result.data)
-                    all_articles.extend(result.data)
+                    filtered_count = len(filtered_articles)
+                    total_filtered += filtered_count
+                    
+                    all_articles.extend(filtered_articles)
                     total_processed += current_batch_size
                     
-                    print(f"📄 {current_batch_size}개 기사 조회 완료 (총 {total_processed}개)")
+                    print(f"📄 {current_batch_size}개 기사 조회, {filtered_count}개 신규 기사 (총 {total_processed}개 조회, {total_filtered}개 신규)")
                     
                     # limit이 설정되어 있고 도달했으면 중단
-                    if limit and total_processed >= limit:
+                    if limit and total_filtered >= limit:
                         all_articles = all_articles[:limit]
                         break
                     
@@ -114,7 +164,7 @@ class IntegratedPreprocessor:
                     offset += page_size
                     continue
             
-            print(f"✅ 총 {len(all_articles)}개 기사 조회 완료")
+            print(f"✅ 총 {len(all_articles)}개 신규 기사 조회 완료")
             return all_articles
             
         except Exception as e:
@@ -290,10 +340,19 @@ class IntegratedPreprocessor:
                 }
                 cleaned_articles.append(cleaned_article)
             
-            # 배치로 저장
-            result = self.supabase_manager.client.table('articles_cleaned').insert(cleaned_articles).execute()
+            # 개별 저장으로 변경 (배치 저장 오류 방지)
+            success_count = 0
+            for article in cleaned_articles:
+                try:
+                    result = self.supabase_manager.client.table('articles_cleaned').insert([article]).execute()
+                    if result.data:
+                        success_count += 1
+                except Exception as e:
+                    print(f"⚠️ 기사 저장 실패 (ID: {article.get('article_id', 'unknown')}): {e}")
+                    continue
             
-            return bool(result.data)
+            print(f"✅ {success_count}/{len(cleaned_articles)}개 기사 저장 완료")
+            return success_count > 0
             
         except Exception as e:
             print(f"❌ articles_cleaned 저장 실패: {str(e)}")

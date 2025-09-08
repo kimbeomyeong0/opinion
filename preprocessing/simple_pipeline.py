@@ -7,7 +7,8 @@
 import sys
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 from rich.panel import Panel
@@ -24,15 +25,64 @@ from preprocessing.modules.content_merger import ContentMerger
 
 console = Console()
 
+def get_kct_to_utc_range(date_filter):
+    """KCT 기준 날짜 필터를 UTC 기준으로 변환
+    
+    Args:
+        date_filter: 'yesterday', 'today', None
+        
+    Returns:
+        tuple: (start_utc, end_utc) 또는 None
+    """
+    if not date_filter:
+        return None
+    
+    # 시간대 설정
+    kct = pytz.timezone('Asia/Seoul')
+    utc = pytz.UTC
+    
+    if date_filter == 'yesterday':
+        # KCT 기준 전날 00:00-23:59
+        kct_yesterday = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        kct_start = kct_yesterday
+        kct_end = kct_yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # UTC로 변환
+        utc_start = kct_start.astimezone(utc)
+        utc_end = kct_end.astimezone(utc)
+        
+    elif date_filter == 'today':
+        # KCT 기준 오늘 00:00-현재
+        kct_today = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0)
+        kct_start = kct_today
+        kct_end = datetime.now(kct)
+        
+        # UTC로 변환
+        utc_start = kct_start.astimezone(utc)
+        utc_end = kct_end.astimezone(utc)
+    
+    else:
+        return None
+    
+    return utc_start, utc_end
+
 class SimplePreprocessingPipeline:
     """단순화된 전처리 파이프라인 - 핵심 기능만 유지"""
     
-    def __init__(self):
-        """초기화"""
+    def __init__(self, date_filter=None):
+        """초기화
+        
+        Args:
+            date_filter: 날짜 필터 옵션
+                - None: 전체 기사
+                - 'yesterday': 전날 기사만 (KCT 기준 00:00-23:59)
+                - 'today': 오늘 기사만
+        """
         self.supabase_manager = SupabaseManager()
+        self.date_filter = date_filter
         
         # 각 모듈 초기화
-        self.duplicate_processor = IntegratedPreprocessor()
+        self.duplicate_processor = IntegratedPreprocessor(date_filter=self.date_filter)
         self.text_cleaner = TextCleaner()
         self.text_normalizer = TextNormalizer()
         self.content_merger = ContentMerger()
@@ -51,8 +101,16 @@ class SimplePreprocessingPipeline:
             if not self.supabase_manager.client:
                 return {'pipeline_ready': False, 'error': 'Supabase client not initialized'}
             
-            # 간단한 카운트 조회
-            articles_total = self.supabase_manager.client.table('articles').select('id', count='exact').execute()
+            # 날짜 필터 적용된 기사 수 조회
+            if self.date_filter:
+                utc_start, utc_end = get_kct_to_utc_range(self.date_filter)
+                if utc_start and utc_end:
+                    articles_total = self.supabase_manager.client.table('articles').select('id', count='exact').gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat()).execute()
+                else:
+                    articles_total = self.supabase_manager.client.table('articles').select('id', count='exact').execute()
+            else:
+                articles_total = self.supabase_manager.client.table('articles').select('id', count='exact').execute()
+            
             articles_preprocessed = self.supabase_manager.client.table('articles').select('id', count='exact').eq('is_preprocessed', True).execute()
             cleaned_result = self.supabase_manager.client.table('articles_cleaned').select('id', count='exact').execute()
             merged_count = self.supabase_manager.client.table('articles_cleaned').select('id', count='exact').not_.is_('merged_content', 'null').execute()

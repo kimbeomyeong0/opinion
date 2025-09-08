@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import asyncio
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
 
 from data_loader import DataLoader
 from cluster_processor import ClusterProcessor
@@ -18,12 +19,34 @@ from issue_generator import IssueGenerator
 
 console = Console()
 
+def get_date_filter_option():
+    """사용자에게 날짜 필터 옵션 선택받기"""
+    console.print(Panel.fit("📅 데이터 범위 선택", style="bold yellow"))
+    console.print("어떤 기사들을 대상으로 클러스터링을 진행하시겠습니까?")
+    console.print()
+    console.print("1. 전체 기사 (모든 기사)")
+    console.print("2. 전날 기사만 (KCT 기준 00:00-23:59)")
+    console.print("3. 오늘 기사만 (00:00-현재)")
+    console.print()
+    
+    while True:
+        choice = Prompt.ask("선택하세요", choices=["1", "2", "3"], default="2")
+        
+        if choice == "1":
+            return None
+        elif choice == "2":
+            return "yesterday"
+        elif choice == "3":
+            return "today"
+        else:
+            console.print("❌ 잘못된 선택입니다. 1, 2, 3 중에서 선택해주세요.")
+
 class SimpleClusterer:
     """단순화된 클러스터러 - 3개 클래스를 조합"""
     
-    def __init__(self):
+    def __init__(self, date_filter=None):
         """초기화"""
-        self.data_loader = DataLoader()
+        self.data_loader = DataLoader(date_filter)
         self.cluster_processor = None
         self.issue_generator = None
     
@@ -69,7 +92,21 @@ class SimpleClusterer:
 
 async def main():
     """메인 실행 함수"""
-    clusterer = SimpleClusterer()
+    # 사용자에게 날짜 필터 옵션 선택받기
+    date_filter = get_date_filter_option()
+    
+    # 선택된 옵션 표시
+    if date_filter == "yesterday":
+        console.print("📅 전날 기사만 처리합니다.")
+    elif date_filter == "today":
+        console.print("📅 오늘 기사만 처리합니다.")
+    else:
+        console.print("📅 전체 기사를 처리합니다.")
+    
+    console.print()
+    
+    # 클러스터링 실행
+    clusterer = SimpleClusterer(date_filter)
     success = await clusterer.run_clustering()
     
     if success:

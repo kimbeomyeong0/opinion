@@ -14,6 +14,33 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from preprocessing.simple_pipeline import SimplePreprocessingPipeline
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt
+
+console = Console()
+
+def get_date_filter_option():
+    """사용자에게 날짜 필터 옵션 선택받기"""
+    console.print(Panel.fit("📅 데이터 범위 선택", style="bold yellow"))
+    console.print("어떤 기사들을 대상으로 전처리를 진행하시겠습니까?")
+    console.print()
+    console.print("1. 전체 기사 (모든 기사)")
+    console.print("2. 전날 기사만 (KCT 기준 00:00-23:59)")
+    console.print("3. 오늘 기사만 (00:00-현재)")
+    console.print()
+    
+    while True:
+        choice = Prompt.ask("선택하세요", choices=["1", "2", "3"], default="2")
+        
+        if choice == "1":
+            return None
+        elif choice == "2":
+            return "yesterday"
+        elif choice == "3":
+            return "today"
+        else:
+            console.print("❌ 잘못된 선택입니다. 1, 2, 3 중에서 선택해주세요.")
 
 def print_banner():
     """배너 출력"""
@@ -47,13 +74,34 @@ def main():
                        help='실행할 단계 (1-4). 생략하면 전체 실행')
     parser.add_argument('--status', action='store_true', 
                        help='상태만 확인하고 종료')
+    parser.add_argument('--date-filter', choices=['yesterday', 'today', 'all'], 
+                       help='날짜 필터 옵션 (yesterday, today, all)')
     
     args = parser.parse_args()
     
     print_banner()
     
+    # 날짜 필터 옵션 선택
+    if args.date_filter:
+        if args.date_filter == 'all':
+            date_filter = None
+        else:
+            date_filter = args.date_filter
+    else:
+        date_filter = get_date_filter_option()
+    
+    # 선택된 옵션 표시
+    if date_filter == "yesterday":
+        console.print("📅 전날 기사만 처리합니다.")
+    elif date_filter == "today":
+        console.print("📅 오늘 기사만 처리합니다.")
+    else:
+        console.print("📅 전체 기사를 처리합니다.")
+    
+    console.print()
+    
     # 파이프라인 초기화
-    pipeline = SimplePreprocessingPipeline()
+    pipeline = SimplePreprocessingPipeline(date_filter)
     
     # 상태 확인
     status = pipeline.get_pipeline_status()

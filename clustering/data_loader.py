@@ -10,6 +10,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd
+from datetime import datetime, timedelta
+import pytz
 from rich.console import Console
 from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn
 
@@ -17,16 +19,65 @@ from utils.supabase_manager import get_supabase_client
 
 console = Console()
 
+def get_kct_to_utc_range(date_filter):
+    """KCT 기준 날짜 필터를 UTC 기준으로 변환
+    
+    Args:
+        date_filter: 'yesterday', 'today', None
+        
+    Returns:
+        tuple: (start_utc, end_utc) 또는 None
+    """
+    if not date_filter:
+        return None
+    
+    # 시간대 설정
+    kct = pytz.timezone('Asia/Seoul')
+    utc = pytz.UTC
+    
+    if date_filter == 'yesterday':
+        # KCT 기준 전날 00:00-23:59
+        kct_yesterday = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        kct_start = kct_yesterday
+        kct_end = kct_yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # UTC로 변환
+        utc_start = kct_start.astimezone(utc)
+        utc_end = kct_end.astimezone(utc)
+        
+    elif date_filter == 'today':
+        # KCT 기준 오늘 00:00-현재
+        kct_today = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0)
+        kct_start = kct_today
+        kct_end = datetime.now(kct)
+        
+        # UTC로 변환
+        utc_start = kct_start.astimezone(utc)
+        utc_end = kct_end.astimezone(utc)
+    
+    else:
+        return None
+    
+    return utc_start, utc_end
+
 class DataLoader:
     """데이터 로더 클래스 - 단일 책임: 데이터 로드"""
     
-    def __init__(self):
-        """초기화"""
+    def __init__(self, date_filter=None):
+        """초기화
+        
+        Args:
+            date_filter: 날짜 필터 옵션
+                - None: 전체 기사
+                - 'yesterday': 전날 기사만 (KCT 기준 00:00-23:59)
+                - 'today': 오늘 기사만
+        """
         self.supabase = get_supabase_client()
         self.embeddings_data = None
         self.articles_data = None
         self.media_outlets = None
         self.embeddings = None
+        self.date_filter = date_filter
         
     def load_embeddings(self) -> bool:
         """임베딩 데이터 로드"""
@@ -88,16 +139,47 @@ class DataLoader:
             # 임베딩에 해당하는 기사들만 로드
             embedding_ids = self.embeddings_data['cleaned_article_id'].tolist()
             
-            result = self.supabase.client.table('articles_cleaned').select(
-                'id, title_cleaned, lead_paragraph, media_id'
-            ).in_('id', embedding_ids).execute()
+            # 날짜 필터링 적용
+            query = self.supabase.client.table('articles_cleaned').select(
+                'id, title_cleaned, lead_paragraph, media_id, published_at'
+            ).in_('id', embedding_ids)
+            
+            # KCT 기준을 UTC로 변환
+            utc_range = get_kct_to_utc_range(self.date_filter)
+            
+            if utc_range:
+                utc_start, utc_end = utc_range
+                
+                if self.date_filter == 'yesterday':
+                    query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                    # KCT 시간으로 표시 (사용자 친화적)
+                    kct_start = utc_start.astimezone(pytz.timezone('Asia/Seoul'))
+                    kct_end = utc_end.astimezone(pytz.timezone('Asia/Seoul'))
+                    console.print(f"📅 전날 기사 필터링 (KCT): {kct_start.strftime('%Y-%m-%d %H:%M')} ~ {kct_end.strftime('%Y-%m-%d %H:%M')}")
+                    console.print(f"📅 UTC 변환: {utc_start.strftime('%Y-%m-%d %H:%M')} ~ {utc_end.strftime('%Y-%m-%d %H:%M')}")
+                    
+                elif self.date_filter == 'today':
+                    query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                    # KCT 시간으로 표시 (사용자 친화적)
+                    kct_start = utc_start.astimezone(pytz.timezone('Asia/Seoul'))
+                    kct_end = utc_end.astimezone(pytz.timezone('Asia/Seoul'))
+                    console.print(f"📅 오늘 기사 필터링 (KCT): {kct_start.strftime('%Y-%m-%d %H:%M')} ~ {kct_end.strftime('%Y-%m-%d %H:%M')}")
+                    console.print(f"📅 UTC 변환: {utc_start.strftime('%Y-%m-%d %H:%M')} ~ {utc_end.strftime('%Y-%m-%d %H:%M')}")
+            
+            result = query.execute()
             
             if not result.data:
                 console.print("❌ 기사 데이터가 없습니다.")
                 return False
             
             self.articles_data = pd.DataFrame(result.data)
-            console.print(f"✅ 기사 데이터 로드 완료: {len(result.data)}개")
+            
+            # 날짜 필터링 결과 표시
+            if self.date_filter:
+                console.print(f"✅ 기사 데이터 로드 완료: {len(result.data)}개 (날짜 필터링 적용)")
+            else:
+                console.print(f"✅ 기사 데이터 로드 완료: {len(result.data)}개 (전체 기사)")
+            
             return True
             
         except Exception as e:

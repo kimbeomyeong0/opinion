@@ -113,13 +113,14 @@ class SupabaseManager:
     
     # ===== 임베딩 관련 메서드들 =====
     
-    def get_articles_for_embedding(self, offset: int = 0, limit: int = 1000) -> List[Dict[str, Any]]:
+    def get_articles_for_embedding(self, offset: int = 0, limit: int = 1000, date_filter: str = None) -> List[Dict[str, Any]]:
         """
         임베딩을 생성할 기사 데이터 조회 (페이지네이션 적용)
         
         Args:
             offset: 시작 오프셋
             limit: 조회할 최대 개수 (Supabase 제한: 1000)
+            date_filter: 날짜 필터 ('yesterday', 'today', None)
             
         Returns:
             기사 데이터 리스트
@@ -129,13 +130,45 @@ class SupabaseManager:
         
         try:
             # merged_content가 있는 기사만 조회
-            result = self.client.table('articles_cleaned')\
+            query = self.client.table('articles_cleaned')\
                 .select('id, article_id, merged_content, title_cleaned, lead_paragraph')\
                 .not_.is_('merged_content', 'null')\
                 .neq('merged_content', '')\
-                .order('created_at', desc=True)\
-                .range(offset, offset + limit - 1)\
-                .execute()
+                .order('created_at', desc=True)
+            
+            # 날짜 필터링 적용
+            if date_filter:
+                from datetime import datetime, timedelta
+                import pytz
+                
+                kct = pytz.timezone('Asia/Seoul')
+                utc = pytz.UTC
+                
+                if date_filter == 'yesterday':
+                    # KCT 기준 전날 00:00-23:59
+                    kct_yesterday = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+                    kct_start = kct_yesterday
+                    kct_end = kct_yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    
+                    # UTC로 변환
+                    utc_start = kct_start.astimezone(utc)
+                    utc_end = kct_end.astimezone(utc)
+                    
+                    query = query.gte('created_at', utc_start.isoformat()).lte('created_at', utc_end.isoformat())
+                    
+                elif date_filter == 'today':
+                    # KCT 기준 오늘 00:00-현재
+                    kct_today = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0)
+                    kct_start = kct_today
+                    kct_end = datetime.now(kct)
+                    
+                    # UTC로 변환
+                    utc_start = kct_start.astimezone(utc)
+                    utc_end = kct_end.astimezone(utc)
+                    
+                    query = query.gte('created_at', utc_start.isoformat()).lte('created_at', utc_end.isoformat())
+            
+            result = query.range(offset, offset + limit - 1).execute()
             
             console.print(f"✅ 임베딩 대상 기사 {len(result.data)}개 조회 완료 (offset: {offset}, limit: {limit})")
             return result.data
@@ -185,17 +218,50 @@ class SupabaseManager:
             console.print(f"❌ 전체 기사 데이터 조회 실패: {str(e)}")
             return []
     
-    def get_total_articles_count(self) -> int:
+    def get_total_articles_count(self, date_filter: str = None) -> int:
         """임베딩 가능한 전체 기사 수 조회"""
         if not self.client:
             return 0
         
         try:
-            result = self.client.table('articles_cleaned')\
+            query = self.client.table('articles_cleaned')\
                 .select('id', count='exact')\
                 .not_.is_('merged_content', 'null')\
-                .neq('merged_content', '')\
-                .execute()
+                .neq('merged_content', '')
+            
+            # 날짜 필터링 적용
+            if date_filter:
+                from datetime import datetime, timedelta
+                import pytz
+                
+                kct = pytz.timezone('Asia/Seoul')
+                utc = pytz.UTC
+                
+                if date_filter == 'yesterday':
+                    # KCT 기준 전날 00:00-23:59
+                    kct_yesterday = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+                    kct_start = kct_yesterday
+                    kct_end = kct_yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    
+                    # UTC로 변환
+                    utc_start = kct_start.astimezone(utc)
+                    utc_end = kct_end.astimezone(utc)
+                    
+                    query = query.gte('created_at', utc_start.isoformat()).lte('created_at', utc_end.isoformat())
+                    
+                elif date_filter == 'today':
+                    # KCT 기준 오늘 00:00-현재
+                    kct_today = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0)
+                    kct_start = kct_today
+                    kct_end = datetime.now(kct)
+                    
+                    # UTC로 변환
+                    utc_start = kct_start.astimezone(utc)
+                    utc_end = kct_end.astimezone(utc)
+                    
+                    query = query.gte('created_at', utc_start.isoformat()).lte('created_at', utc_end.isoformat())
+            
+            result = query.execute()
             
             count = result.count if result.count else 0
             console.print(f"📊 임베딩 가능한 전체 기사 수: {count:,}개")
