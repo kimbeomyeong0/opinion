@@ -714,9 +714,9 @@ class PoliticalNewsClusterer:
                     'title': llm_content['title'],
                     'subtitle': llm_content['subtitle'],
                     'summary': llm_content['summary'],
-                    'left_view': str(bias_analysis['left']),
-                    'center_view': str(bias_analysis['center']),
-                    'right_view': str(bias_analysis['right']),
+                    'left_source': str(bias_analysis['left']),
+                    'center_source': str(bias_analysis['center']),
+                    'right_source': str(bias_analysis['right']),
                     'source': str(cluster_info['size']),
                     'date': datetime.now().date().isoformat()
                 }
@@ -787,9 +787,9 @@ class PoliticalNewsClusterer:
                     'title': llm_content['title'],
                     'subtitle': llm_content['subtitle'],
                     'summary': llm_content['summary'],
-                    'left_view': str(bias_analysis['left']),
-                    'center_view': str(bias_analysis['center']),
-                    'right_view': str(bias_analysis['right']),
+                    'left_source': str(bias_analysis['left']),
+                    'center_source': str(bias_analysis['center']),
+                    'right_source': str(bias_analysis['right']),
                     'source': str(cluster_info['size']),
                     'date': datetime.now().date().isoformat()
                 }
