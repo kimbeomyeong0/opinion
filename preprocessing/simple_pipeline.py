@@ -17,9 +17,10 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from utils.supabase_manager import SupabaseManager
-from preprocessing.modules.filter_processor import FilterProcessor
-from preprocessing.modules.text_processor import TextProcessor
-from preprocessing.modules.content_processor import ContentProcessor
+from preprocessing.modules.duplicate_remover import IntegratedPreprocessor
+from preprocessing.modules.text_cleaner import TextCleaner
+from preprocessing.modules.text_normalizer import TextNormalizer
+from preprocessing.modules.content_merger import ContentMerger
 
 console = Console()
 
@@ -31,9 +32,10 @@ class SimplePreprocessingPipeline:
         self.supabase_manager = SupabaseManager()
         
         # 각 모듈 초기화
-        self.filter_processor = FilterProcessor()
-        self.text_processor = TextProcessor()
-        self.content_processor = ContentProcessor()
+        self.duplicate_processor = IntegratedPreprocessor()
+        self.text_cleaner = TextCleaner()
+        self.text_normalizer = TextNormalizer()
+        self.content_merger = ContentMerger()
         
         # 단계별 정의
         self.stages = {
@@ -72,7 +74,7 @@ class SimplePreprocessingPipeline:
         try:
             console.print("🔄 1단계: 중복 제거 + 기본 필터링 시작")
             
-            result = self.filter_processor.process_integrated_filtering()
+            result = self.duplicate_processor.process_integrated_preprocessing()
             
             if result.success:
                 console.print(f"✅ 1단계 완료: {result.final_articles}개 기사 처리됨")
@@ -138,7 +140,7 @@ class SimplePreprocessingPipeline:
         try:
             console.print("🔄 4단계: 제목+본문 통합 시작")
             
-            result = self.content_processor.process_content_merge()
+            result = self.content_merger.process_content_merge()
             
             if result['successful_saves'] > 0:
                 console.print(f"✅ 4단계 완료: {result['successful_saves']}개 기사 통합됨")
@@ -263,8 +265,8 @@ class SimplePreprocessingPipeline:
         """단일 기사 정제 처리"""
         try:
             # 제목과 리드문 정제
-            cleaned_title, title_patterns = self.text_processor.clean_title(article['title_cleaned'] or '', 'unknown')
-            cleaned_lead, lead_patterns = self.text_processor.clean_content(article['lead_paragraph'] or '', 'unknown')
+            cleaned_title, title_patterns = self.text_cleaner.clean_title(article['title_cleaned'] or '', 'unknown')
+            cleaned_lead, lead_patterns = self.text_cleaner.clean_content(article['lead_paragraph'] or '', 'unknown')
             
             return {
                 'id': article['id'],
@@ -287,8 +289,8 @@ class SimplePreprocessingPipeline:
         """단일 기사 정규화 처리"""
         try:
             # 텍스트 정규화 실행
-            title_result = self.text_processor.normalize_text(article['title_cleaned'] or '')
-            content_result = self.text_processor.normalize_text(article['lead_paragraph'] or '')
+            title_result = self.text_normalizer.normalize_text(article['title_cleaned'] or '')
+            content_result = self.text_normalizer.normalize_text(article['lead_paragraph'] or '')
             
             return {
                 'id': article['id'],

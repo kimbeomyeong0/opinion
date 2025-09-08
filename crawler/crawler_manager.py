@@ -130,9 +130,9 @@ class CrawlerManager:
             async with self.semaphore:
                 return await self.run_crawler(crawler_name)
     
-    async def run_stage1_simple_html(self):
-        """1단계: 단순한 HTML 크롤러 병렬 실행"""
-        stage_info = self.crawler_groups["stage1_simple_html"]
+    async def run_simple_crawlers(self):
+        """단순한 크롤러들 병렬 실행"""
+        stage_info = self.crawler_groups["simple"]
         console.print(Panel.fit(f"🎯 1단계: {stage_info['description']}", style="bold blue"))
         
         crawlers = stage_info["crawlers"]
@@ -150,30 +150,10 @@ class CrawlerManager:
                 status = "✅ 성공" if result.status == "success" else "❌ 실패"
                 console.print(f"{status} {result.crawler_name} - {result.articles_collected}개 기사")
     
-    async def run_stage2_api_based(self):
-        """2단계: API 기반 크롤러 병렬 실행"""
-        stage_info = self.crawler_groups["stage2_api_based"]
-        console.print(Panel.fit(f"🎯 2단계: {stage_info['description']}", style="bold green"))
-        
-        crawlers = stage_info["crawlers"]
-        console.print(f"실행할 크롤러: {', '.join(crawlers)}")
-        
-        # 병렬 실행
-        tasks = [self.run_crawler_with_semaphore(crawler) for crawler in crawlers]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 결과 출력
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                console.print(f"❌ {crawlers[i]} 예외 발생: {result}")
-            else:
-                status = "✅ 성공" if result.status == "success" else "❌ 실패"
-                console.print(f"{status} {result.crawler_name} - {result.articles_collected}개 기사")
-    
-    async def run_stage3_complex_html(self):
-        """3단계: 복잡한 HTML 크롤러 순차 실행 (Playwright 사용)"""
-        stage_info = self.crawler_groups["stage3_complex_html"]
-        console.print(Panel.fit(f"🎯 3단계: {stage_info['description']}", style="bold yellow"))
+    async def run_complex_crawlers(self):
+        """복잡한 크롤러들 순차 실행 (Playwright 사용)"""
+        stage_info = self.crawler_groups["complex"]
+        console.print(Panel.fit(f"🎯 2단계: {stage_info['description']}", style="bold yellow"))
         
         crawlers = stage_info["crawlers"]
         console.print(f"실행할 크롤러: {', '.join(crawlers)} (순차 실행)")
@@ -188,22 +168,6 @@ class CrawlerManager:
             
             # 크롤러 간 대기 시간
             await asyncio.sleep(2)
-    
-    async def run_stage4_complex_api(self):
-        """4단계: 복잡한 API 크롤러 실행"""
-        stage_info = self.crawler_groups["stage4_complex_api"]
-        console.print(Panel.fit(f"🎯 4단계: {stage_info['description']}", style="bold red"))
-        
-        crawlers = stage_info["crawlers"]
-        console.print(f"실행할 크롤러: {', '.join(crawlers)}")
-        
-        # 단일 크롤러 실행
-        for crawler in crawlers:
-            console.print(f"🔄 {crawler} 실행 중...")
-            result = await self.run_crawler_with_semaphore(crawler)
-            
-            status = "✅ 성공" if result.status == "success" else "❌ 실패"
-            console.print(f"{status} {result.crawler_name} - {result.articles_collected}개 기사")
     
     def print_summary(self):
         """전체 실행 결과 요약 출력"""
@@ -249,24 +213,17 @@ class CrawlerManager:
     async def run_full_pipeline(self):
         """전체 파이프라인 실행"""
         start_time = datetime.now(KST)
-        console.print(Panel.fit("🚀 크롤러 병렬 파이프라인 시작", style="bold white"))
+        console.print(Panel.fit("🚀 크롤러 파이프라인 시작", style="bold white"))
         console.print(f"시작 시간: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         try:
-            # 1단계: 단순한 HTML 크롤러
-            await self.run_stage1_simple_html()
-            await asyncio.sleep(STAGE_DELAYS["stage1_simple_html"])
+            # 1단계: 단순한 크롤러들
+            await self.run_simple_crawlers()
+            await asyncio.sleep(STAGE_DELAYS["simple"])
             
-            # 2단계: API 기반 크롤러
-            await self.run_stage2_api_based()
-            await asyncio.sleep(STAGE_DELAYS["stage2_api_based"])
-            
-            # 3단계: 복잡한 HTML 크롤러
-            await self.run_stage3_complex_html()
-            await asyncio.sleep(STAGE_DELAYS["stage3_complex_html"])
-            
-            # 4단계: 복잡한 API 크롤러
-            await self.run_stage4_complex_api()
+            # 2단계: 복잡한 크롤러들
+            await self.run_complex_crawlers()
+            await asyncio.sleep(STAGE_DELAYS["complex"])
             
         except KeyboardInterrupt:
             console.print("⏹️ 사용자에 의해 중단되었습니다")
