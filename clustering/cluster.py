@@ -245,10 +245,45 @@ class PoliticalNewsClusterer:
             console.print(f"✅ UMAP 완료: {self.embeddings.shape[1]}D → 2D")
             console.print(f"   - 파라미터: n_neighbors={n_neighbors}, min_dist={min_dist}")
             
+            # UMAP 좌표를 articles_embeddings 테이블에 저장
+            self.save_umap_coordinates()
+            
             return True
             
         except Exception as e:
             console.print(f"❌ UMAP 실행 실패: {e}")
+            return False
+    
+    def save_umap_coordinates(self) -> bool:
+        """UMAP 좌표를 articles_embeddings 테이블에 저장"""
+        try:
+            console.print("💾 UMAP 좌표 저장 중...")
+            
+            # embedding_id와 UMAP 좌표 매핑
+            umap_data = []
+            for i, (embedding_id, coords) in enumerate(zip(self.embedding_ids, self.umap_embedding)):
+                umap_data.append({
+                    'id': embedding_id,
+                    'umap_x': float(coords[0]),
+                    'umap_y': float(coords[1])
+                })
+            
+            # 배치로 업데이트
+            batch_size = 100
+            for i in range(0, len(umap_data), batch_size):
+                batch = umap_data[i:i + batch_size]
+                
+                for item in batch:
+                    self.supabase.client.table('articles_embeddings').update({
+                        'umap_x': item['umap_x'],
+                        'umap_y': item['umap_y']
+                    }).eq('id', item['id']).execute()
+            
+            console.print(f"✅ UMAP 좌표 저장 완료: {len(umap_data)}개")
+            return True
+            
+        except Exception as e:
+            console.print(f"❌ UMAP 좌표 저장 실패: {e}")
             return False
     
     def run_hdbscan_clustering(self) -> bool:
