@@ -115,11 +115,11 @@ class SupabaseManager:
     
     def get_articles_for_embedding(self, offset: int = 0, limit: int = 1000) -> List[Dict[str, Any]]:
         """
-        임베딩을 생성할 기사 데이터 조회
+        임베딩을 생성할 기사 데이터 조회 (페이지네이션 적용)
         
         Args:
             offset: 시작 오프셋
-            limit: 조회할 최대 개수
+            limit: 조회할 최대 개수 (Supabase 제한: 1000)
             
         Returns:
             기사 데이터 리스트
@@ -137,11 +137,52 @@ class SupabaseManager:
                 .range(offset, offset + limit - 1)\
                 .execute()
             
-            console.print(f"✅ 임베딩 대상 기사 {len(result.data)}개 조회 완료")
+            console.print(f"✅ 임베딩 대상 기사 {len(result.data)}개 조회 완료 (offset: {offset}, limit: {limit})")
             return result.data
             
         except Exception as e:
             console.print(f"❌ 기사 데이터 조회 실패: {str(e)}")
+            return []
+    
+    def get_all_articles_for_embedding(self, batch_size: int = 1000) -> List[Dict[str, Any]]:
+        """
+        모든 기사 데이터를 페이지네이션으로 조회
+        
+        Args:
+            batch_size: 배치 크기 (Supabase 제한 고려)
+            
+        Returns:
+            전체 기사 데이터 리스트
+        """
+        if not self.client:
+            return []
+        
+        try:
+            all_articles = []
+            offset = 0
+            
+            console.print("📊 전체 기사 데이터를 페이지네이션으로 조회 중...")
+            
+            while True:
+                batch_articles = self.get_articles_for_embedding(offset, batch_size)
+                
+                if not batch_articles:
+                    break
+                
+                all_articles.extend(batch_articles)
+                console.print(f"   - 배치 {offset//batch_size + 1}: {len(batch_articles)}개 기사 추가 (총 {len(all_articles)}개)")
+                
+                # Supabase 제한에 도달했으면 중단
+                if len(batch_articles) < batch_size:
+                    break
+                
+                offset += batch_size
+            
+            console.print(f"✅ 전체 기사 데이터 조회 완료: {len(all_articles)}개")
+            return all_articles
+            
+        except Exception as e:
+            console.print(f"❌ 전체 기사 데이터 조회 실패: {str(e)}")
             return []
     
     def get_total_articles_count(self) -> int:
