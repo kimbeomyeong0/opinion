@@ -105,14 +105,16 @@ class ContentProcessor:
             )
     
     def _fetch_articles_for_merge(self) -> List[Dict[str, Any]]:
-        """통합할 기사들 조회"""
+        """통합할 기사들 조회 (articles_cleaned 테이블의 모든 기사)"""
         try:
             result = self.supabase_manager.client.table('articles_cleaned').select(
                 'id, title_cleaned, lead_paragraph'
             ).is_('merged_content', 'null').execute()
             
+            print(f"📅 content_processor: articles_cleaned 테이블의 모든 기사 처리")
             return result.data if result else []
         except Exception as e:
+            print(f"❌ 기사 조회 실패: {str(e)}")
             return []
     
     def _extract_lead_paragraph(self, article: Dict[str, Any]) -> str:

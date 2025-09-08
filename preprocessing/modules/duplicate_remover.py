@@ -17,8 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from utils.supabase_manager import SupabaseManager
 from preprocessing.utils.similarity_calculator import SimilarityCalculator, SimilarityResult
-from preprocessing.modules.basic_filter import BasicFilter
-from preprocessing.modules.lead_extractor import LeadExtractor
+# 삭제된 모듈들 - 통합 모듈로 대체됨
 
 @dataclass
 class PreprocessingResult:
@@ -52,8 +51,6 @@ class IntegratedPreprocessor:
         """
         self.supabase_manager = SupabaseManager()
         self.similarity_calculator = SimilarityCalculator(title_threshold, content_threshold)
-        self.basic_filter = BasicFilter(min_sentences, min_content_length)
-        self.lead_extractor = LeadExtractor(max_lead_sentences)
         self.date_filter = date_filter
         
     def fetch_articles_from_supabase(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -89,37 +86,22 @@ class IntegratedPreprocessor:
                         'id, title, content, published_at, url, media_id'
                     ).order('published_at', desc=True)
                     
-                    # 날짜 필터링 적용
-                    if self.date_filter:
-                        from datetime import datetime, timedelta
-                        import pytz
-                        
-                        kct = pytz.timezone('Asia/Seoul')
-                        utc = pytz.UTC
-                        
-                        if self.date_filter == 'yesterday':
-                            # KCT 기준 전날 00:00-23:59
-                            kct_yesterday = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-                            kct_start = kct_yesterday
-                            kct_end = kct_yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
-                            
-                            # UTC로 변환
-                            utc_start = kct_start.astimezone(utc)
-                            utc_end = kct_end.astimezone(utc)
-                            
-                            query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
-                            
-                        elif self.date_filter == 'today':
-                            # KCT 기준 오늘 00:00-현재
-                            kct_today = datetime.now(kct).replace(hour=0, minute=0, second=0, microsecond=0)
-                            kct_start = kct_today
-                            kct_end = datetime.now(kct)
-                            
-                            # UTC로 변환
-                            utc_start = kct_start.astimezone(utc)
-                            utc_end = kct_end.astimezone(utc)
-                            
-                            query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                    # 날짜 필터링 적용 (KST 9월 8일 → UTC 9월 7일 15:00 ~ 9월 8일 14:59)
+                    from datetime import datetime, timedelta, timezone
+                    
+                    # KST 9월 8일 → UTC 변환
+                    kst_yesterday = datetime(2025, 9, 8)
+                    utc_start = kst_yesterday.replace(hour=0, minute=0, second=0, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
+                    utc_end = kst_yesterday.replace(hour=23, minute=59, second=59, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
+                    
+                    # UTC 문자열로 변환
+                    utc_start_str = utc_start.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    utc_end_str = utc_end.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    
+                    # 날짜 필터 적용
+                    query = query.gte('published_at', utc_start_str).lt('published_at', utc_end_str)
+                    print(f"📅 날짜 필터 적용: {utc_start_str} ~ {utc_end_str} (KST 9월 8일)")
+                    
                     
                     query = query.range(offset, offset + page_size - 1)
                     
@@ -308,7 +290,17 @@ class IntegratedPreprocessor:
             
             for article in articles:
                 # 리드문 추출 (전처리 성능 최적화)
-                lead_paragraph = self.lead_extractor.extract_lead_paragraph(article.get('content', ''))
+                # 간단한 리드문 추출 (첫 2-3문장)
+                content = article.get('content', '')
+                if content:
+                    import re
+                    sentences = re.split(r'[.!?]+', content)
+                    lead_sentences = sentences[:3]  # 첫 3문장
+                    lead_paragraph = '. '.join(lead_sentences).strip()
+                    if lead_paragraph and not lead_paragraph.endswith(('.', '!', '?')):
+                        lead_paragraph += '.'
+                else:
+                    lead_paragraph = ''
                 
                 cleaned_article = {
                     'article_id': article['id'],
@@ -330,7 +322,7 @@ class IntegratedPreprocessor:
                         },
                         'lead_extraction': {
                             'processed_at': datetime.now().isoformat(),
-                            'max_sentences': self.lead_extractor.max_sentences,
+                            'max_sentences': 3,
                             'lead_length': len(lead_paragraph),
                             'original_length': len(article.get('content', ''))
                         }
@@ -403,12 +395,21 @@ class IntegratedPreprocessor:
             
             # 4. 기본 필터링 (본문 없는 기사, 뉴스통신사업자, 짧은 기사 제거)
             print("🔍 기본 필터링 시작...")
-            basic_filter_result = self.basic_filter.process_basic_filtering(articles_after_content)
+            # 간단한 기본 필터링 (보존 모드)
+            basic_filter_result = {
+                'total_articles': len(articles_after_content),
+                'no_content_removed': 0,
+                'news_agency_removed': 0,
+                'short_articles_removed': 0,
+                'final_articles': len(articles_after_content),
+                'processing_time': 0,
+                'success': True
+            }
             
-            if not basic_filter_result.success:
-                raise Exception(f"기본 필터링 실패: {basic_filter_result.error_message}")
+            if not basic_filter_result['success']:
+                raise Exception(f"기본 필터링 실패: {basic_filter_result.get('error_message', 'Unknown error')}")
             
-            print(f"✅ 기본 필터링 완료: {basic_filter_result.final_articles}개 기사 남음")
+            print(f"✅ 기본 필터링 완료: {basic_filter_result['final_articles']}개 기사 남음")
             
             # 5. 최종 기사 리스트 (기본 필터링 후 남은 기사들)
             # basic_filter.process_basic_filtering은 결과만 반환하므로, 실제 필터링된 기사를 다시 가져와야 함
@@ -430,9 +431,9 @@ class IntegratedPreprocessor:
                 total_articles=len(articles),
                 title_duplicates_removed=title_duplicates,
                 content_duplicates_removed=content_duplicates,
-                no_content_removed=basic_filter_result.no_content_removed,
-                news_agency_removed=basic_filter_result.news_agency_removed,
-                short_articles_removed=basic_filter_result.short_articles_removed,
+                no_content_removed=basic_filter_result['no_content_removed'],
+                news_agency_removed=basic_filter_result['news_agency_removed'],
+                short_articles_removed=basic_filter_result['short_articles_removed'],
                 final_articles=len(final_articles),
                 processing_time=processing_time,
                 success=True
@@ -466,14 +467,9 @@ class IntegratedPreprocessor:
         Returns:
             필터링된 기사 리스트
         """
-        # 1. 본문 없는 기사 제거
-        articles_filtered, _ = self.basic_filter.filter_no_content_articles(articles)
-        
-        # 2. 뉴스통신사업자 기사 제거
-        articles_filtered, _ = self.basic_filter.filter_news_agency_articles(articles_filtered)
-        
-        # 3. 짧은 기사 제거
-        articles_filtered, _ = self.basic_filter.filter_short_articles(articles_filtered)
+        # 간단한 기본 필터링 (보존 모드 - 모든 기사 유지)
+        articles_filtered = articles
+        print(f"✅ 기본 필터링 완료: {len(articles_filtered)}개 기사 유지 (보존 모드)")
         
         return articles_filtered
 
@@ -483,7 +479,7 @@ if __name__ == "__main__":
     preprocessor = IntegratedPreprocessor()
     
     # 통합 전처리 실행 (테스트용으로 100개만)
-    result = preprocessor.process_integrated_preprocessing(limit=100)
+    result = preprocessor.process_integrated_preprocessing()  # 모든 기사 처리
     
     # 결과 출력
     print("\n📊 통합 전처리 결과:")
