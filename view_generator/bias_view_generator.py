@@ -151,28 +151,24 @@ class BiasViewGenerator:
                 temperature=self.config['temperature']
             )
             
-            # 응답 파싱 (불렛 포인트만)
+            # 응답 파싱 (구조화된 관점 문서)
             content = response.choices[0].message.content.strip()
             
-            # 불렛 포인트만 추출
+            # 하이픈 불렛 형식으로 정리
             lines = content.split('\n')
-            bullet_points = []
+            formatted_lines = []
             
             for line in lines:
                 line = line.strip()
-                if line.startswith('-') and len(line) > 1:
-                    bullet_points.append(line[1:].strip())  # '-' 제거
+                if line and not line.startswith('#'):  # 주석 제거
+                    if line.startswith('-'):
+                        formatted_lines.append(line)
+                    else:
+                        # 하이픈이 없는 줄은 하이픈 추가
+                        formatted_lines.append(f"- {line}")
             
-            # 불렛 포인트가 없으면 전체 내용을 하나의 불렛으로 처리
-            if not bullet_points:
-                bullet_points = [content]
-            
-            # 최대 3개로 제한
-            bullet_points = bullet_points[:3]
-            
-            # 불렛 포인트들을 하나의 문자열로 결합
-            result = '\n'.join([f"- {point}" for point in bullet_points])
-            
+            # 순수 텍스트로 반환 (JSON 이스케이프 없음)
+            result = '\n'.join(formatted_lines)
             return result
             
         except Exception as e:
@@ -222,11 +218,11 @@ class BiasViewGenerator:
     
     def update_issue_views(self, issue_id: str, bias_views: Dict[str, str]) -> bool:
         """
-        이슈의 성향별 관점을 데이터베이스에 업데이트
+        이슈의 성향별 관점을 데이터베이스에 업데이트 (TEXT 타입)
         
         Args:
             issue_id: 이슈 ID
-            bias_views: 성향별 관점 딕셔너리 (불렛 포인트만)
+            bias_views: 성향별 관점 딕셔너리 (구조화된 텍스트)
             
         Returns:
             업데이트 성공 여부
@@ -235,12 +231,12 @@ class BiasViewGenerator:
             return False
         
         try:
-            # 업데이트할 데이터 구성 (불렛 포인트만 저장)
+            # 업데이트할 데이터 구성 (TEXT 타입으로 저장)
             update_data = {}
             
             for bias in ['left', 'center', 'right']:
                 if bias in bias_views:
-                    # 불렛 포인트만 저장
+                    # 구조화된 텍스트를 그대로 저장
                     update_data[f'{bias}_view'] = bias_views[bias]
             
             # 데이터베이스 업데이트

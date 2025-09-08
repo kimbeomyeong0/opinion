@@ -43,7 +43,8 @@ async def generate_views_for_issue(issue_id: str):
         
         for bias, view in bias_views.items():
             console.print(f"\n🔸 {bias.upper()} 성향:")
-            console.print(f"   {view}")
+            # TEXT 타입이므로 그대로 출력 (줄바꿈 처리 불필요)
+            console.print(view)
         
         # 데이터베이스 업데이트
         success = generator.update_issue_views(issue_id, bias_views)
