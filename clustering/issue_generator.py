@@ -505,24 +505,23 @@ class IssueGenerator:
                 
                 content_text = "\n\n".join(batch)
                 prompt = f"""
-다음 {bias_type} 성향의 언론사 기사들을 분석하여 {view_type} 관점에서의 입장을 기승전결 구조로 자연스럽게 작성해주세요:
+다음 {bias_type} 성향의 언론사 기사들을 분석하여 {view_type} 관점에서의 입장을 간결하고 명확하게 작성해주세요:
 
 {content_text}
 
-{view_type} 관점: [기승전결 구조에 맞춰 4-5문장으로 자연스럽게 작성]
-- 서론: {view_type} 관점에서 바라본 이슈의 핵심 인식과 기본 입장
-- 전개: {view_type} 관점의 핵심 논리와 근거, 구체적 분석
-- 전환: {view_type} 관점에서 제기하는 주요 쟁점과 비판/지지 사항
-- 결론: {view_type} 관점의 명확한 입장과 향후 방향성
+{view_type} 관점: [기승전결 구조로 3-4문장 간결하게 작성]
+- 핵심 주장과 근거를 명확하게 표현
+- 불필요한 반복이나 장황한 설명 제거
+- 하나의 메시지에 집중하여 뚜렷한 입장 표현
+- 일반 뉴스 기사처럼 자연스럽게 작성
 
 단, "기/승/전/결" 같은 레이블은 사용하지 말고 논리적 흐름만 드러나도록 자연스럽게 작성해주세요.
-{view_type} 관점의 뚜렷한 목소리와 주장이 명확히 드러나도록 해주세요.
 """
                 
                 response = self.openai_client.chat.completions.create(
                     model=self.config["openai_model"],
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=400,  # 250 → 400으로 증가 (기승전결 구조를 위해)
+                    max_tokens=250,  # 400 → 250으로 조정 (간결한 3-4문장을 위해)
                     temperature=0.7
                 )
                 
@@ -548,24 +547,23 @@ class IssueGenerator:
         try:
             combined_views = "\n\n".join(batch_views)
             final_prompt = f"""
-다음 {view_type} 관점들을 종합하여 기승전결 구조의 일관된 {view_type} 입장을 정리해주세요:
+다음 {view_type} 관점들을 종합하여 간결하고 명확한 {view_type} 입장을 정리해주세요:
 
 {combined_views}
 
-통합 {view_type} 관점: [기승전결 구조에 맞춰 4-5문장으로 자연스럽게 통합]
-- 서론: {view_type} 관점에서 바라본 이슈의 핵심 인식과 기본 입장
-- 전개: {view_type} 관점의 핵심 논리와 근거, 구체적 분석
-- 전환: {view_type} 관점에서 제기하는 주요 쟁점과 비판/지지 사항
-- 결론: {view_type} 관점의 명확한 입장과 향후 방향성
+통합 {view_type} 관점: [기승전결 구조로 3-4문장 간결하게 통합]
+- 핵심 주장과 근거를 명확하게 표현
+- 불필요한 반복이나 장황한 설명 제거
+- 하나의 메시지에 집중하여 뚜렷한 입장 표현
+- 일반 뉴스 기사처럼 자연스럽게 작성
 
 단, "기/승/전/결" 같은 레이블은 사용하지 말고 논리적 흐름만 드러나도록 자연스럽게 작성해주세요.
-{view_type} 관점의 뚜렷한 목소리와 주장이 명확히 드러나도록 해주세요.
 """
             
             response = self.openai_client.chat.completions.create(
                 model=self.config["openai_model"],
                 messages=[{"role": "user", "content": final_prompt}],
-                max_tokens=500,  # 350 → 500으로 증가 (기승전결 구조를 위해)
+                max_tokens=300,  # 500 → 300으로 조정 (간결한 3-4문장을 위해)
                 temperature=0.7
             )
             
