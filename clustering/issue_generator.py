@@ -407,17 +407,23 @@ class IssueGenerator:
                 
                 content_text = "\n\n".join(batch)
                 prompt = f"""
-다음 정치 뉴스들을 분석하여 이슈의 핵심 내용을 간결하게 요약해주세요:
+다음 정치 뉴스들을 분석하여 이슈의 핵심 내용을 기승전결 구조로 자연스럽게 요약해주세요:
 
 {content_text}
 
-요약: [핵심 내용만 2-3문장으로 간결하게 요약]
+요약: [기승전결 구조에 맞춰 4-6문장으로 자연스럽게 작성]
+- 서론: 핵심 사건의 배경과 상황
+- 전개: 주요 전개 상황과 진행 과정  
+- 전환: 핵심 쟁점과 갈등 요소
+- 결론: 현재 상황과 향후 전망
+
+단, "기/승/전/결" 같은 레이블은 사용하지 말고 논리적 흐름만 드러나도록 자연스럽게 작성해주세요.
 """
                 
                 response = self.openai_client.chat.completions.create(
                     model=self.config["openai_model"],
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=150,  # 300 → 150으로 더 단축
+                    max_tokens=300,  # 150 → 300으로 증가 (기승전결 구조를 위해)
                     temperature=0.7
                 )
                 
@@ -443,17 +449,23 @@ class IssueGenerator:
         try:
             combined_summaries = "\n\n".join(batch_summaries)
             final_prompt = f"""
-다음 요약들을 종합하여 하나의 간결한 이슈 요약을 만들어주세요:
+다음 요약들을 종합하여 하나의 기승전결 구조의 이슈 요약을 만들어주세요:
 
 {combined_summaries}
 
-통합 요약: [핵심 내용만 2-3문장으로 간결하게 통합]
+통합 요약: [기승전결 구조에 맞춰 4-6문장으로 자연스럽게 통합]
+- 서론: 핵심 사건의 배경과 상황
+- 전개: 주요 전개 상황과 진행 과정
+- 전환: 핵심 쟁점과 갈등 요소  
+- 결론: 현재 상황과 향후 전망
+
+단, "기/승/전/결" 같은 레이블은 사용하지 말고 논리적 흐름만 드러나도록 자연스럽게 작성해주세요.
 """
             
             response = self.openai_client.chat.completions.create(
                 model=self.config["openai_model"],
                 messages=[{"role": "user", "content": final_prompt}],
-                max_tokens=200,  # 800 → 200으로 대폭 단축
+                max_tokens=400,  # 200 → 400으로 증가 (기승전결 구조를 위해)
                 temperature=0.7
             )
             
@@ -493,19 +505,24 @@ class IssueGenerator:
                 
                 content_text = "\n\n".join(batch)
                 prompt = f"""
-다음 {bias_type} 성향의 언론사 기사들을 분석하여 {view_type} 관점에서의 입장을 명확하게 작성해주세요:
+다음 {bias_type} 성향의 언론사 기사들을 분석하여 {view_type} 관점에서의 입장을 기승전결 구조로 자연스럽게 작성해주세요:
 
 {content_text}
 
-{view_type} 관점: [이슈에 대한 {view_type} 입장을 3-4문장으로 명확하게 작성]
-- {view_type} 관점의 핵심 논리와 근거를 제시
-- 기사 내용을 바탕으로 한 구체적인 입장 표현
+{view_type} 관점: [기승전결 구조에 맞춰 4-5문장으로 자연스럽게 작성]
+- 서론: {view_type} 관점에서 바라본 이슈의 핵심 인식과 기본 입장
+- 전개: {view_type} 관점의 핵심 논리와 근거, 구체적 분석
+- 전환: {view_type} 관점에서 제기하는 주요 쟁점과 비판/지지 사항
+- 결론: {view_type} 관점의 명확한 입장과 향후 방향성
+
+단, "기/승/전/결" 같은 레이블은 사용하지 말고 논리적 흐름만 드러나도록 자연스럽게 작성해주세요.
+{view_type} 관점의 뚜렷한 목소리와 주장이 명확히 드러나도록 해주세요.
 """
                 
                 response = self.openai_client.chat.completions.create(
                     model=self.config["openai_model"],
                     messages=[{"role": "user", "content": prompt}],
-                    max_tokens=250,  # 200 → 250으로 약간 증가 (관점 명확화를 위해)
+                    max_tokens=400,  # 250 → 400으로 증가 (기승전결 구조를 위해)
                     temperature=0.7
                 )
                 
@@ -531,19 +548,24 @@ class IssueGenerator:
         try:
             combined_views = "\n\n".join(batch_views)
             final_prompt = f"""
-다음 {view_type} 관점들을 종합하여 명확하고 일관된 {view_type} 입장을 정리해주세요:
+다음 {view_type} 관점들을 종합하여 기승전결 구조의 일관된 {view_type} 입장을 정리해주세요:
 
 {combined_views}
 
-통합 {view_type} 관점: [이슈에 대한 명확한 {view_type} 입장을 4-5문장으로 정리]
-- {view_type} 관점의 핵심 논리와 근거
-- 기사 내용을 바탕으로 한 구체적인 입장
+통합 {view_type} 관점: [기승전결 구조에 맞춰 4-5문장으로 자연스럽게 통합]
+- 서론: {view_type} 관점에서 바라본 이슈의 핵심 인식과 기본 입장
+- 전개: {view_type} 관점의 핵심 논리와 근거, 구체적 분석
+- 전환: {view_type} 관점에서 제기하는 주요 쟁점과 비판/지지 사항
+- 결론: {view_type} 관점의 명확한 입장과 향후 방향성
+
+단, "기/승/전/결" 같은 레이블은 사용하지 말고 논리적 흐름만 드러나도록 자연스럽게 작성해주세요.
+{view_type} 관점의 뚜렷한 목소리와 주장이 명확히 드러나도록 해주세요.
 """
             
             response = self.openai_client.chat.completions.create(
                 model=self.config["openai_model"],
                 messages=[{"role": "user", "content": final_prompt}],
-                max_tokens=350,  # 300 → 350으로 약간 증가 (관점 명확화를 위해)
+                max_tokens=500,  # 350 → 500으로 증가 (기승전결 구조를 위해)
                 temperature=0.7
             )
             
