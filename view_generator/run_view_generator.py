@@ -19,9 +19,25 @@ from utils.supabase_manager import get_supabase_client
 console = Console()
 
 async def generate_views_for_issue(issue_id: str):
-    """특정 이슈의 성향별 관점 생성"""
+    """특정 이슈의 성향별 관점 생성 (이미 있으면 스킵)"""
     
-    console.print(Panel(f"이슈 {issue_id} 성향별 관점 생성", style="bold blue"))
+    console.print(Panel(f"이슈 {issue_id} 성향별 관점 확인", style="bold blue"))
+    
+    # 먼저 기존 관점이 있는지 확인
+    supabase = get_supabase_client()
+    result = supabase.client.table('issues').select('left_view, center_view, right_view').eq('id', issue_id).execute()
+    
+    if result.data:
+        issue = result.data[0]
+        left_view = issue.get('left_view', '')
+        center_view = issue.get('center_view', '')
+        right_view = issue.get('right_view', '')
+        
+        # 이미 관점이 모두 있으면 스킵
+        if left_view and center_view and right_view:
+            console.print("✅ 이미 모든 관점이 생성되어 있습니다. 스킵합니다.")
+            console.print(f"📊 기존 관점 길이 - LEFT: {len(left_view)}, CENTER: {len(center_view)}, RIGHT: {len(right_view)}")
+            return True
     
     # View Generator 초기화
     try:

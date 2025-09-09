@@ -132,53 +132,99 @@ class DataLoader:
             return False
     
     def load_articles_data(self) -> bool:
-        """기사 데이터 로드"""
+        """기사 데이터 로드 - articles_cleaned와 articles 테이블 조인"""
         try:
             console.print("📰 기사 데이터 로드 중...")
             
             # 임베딩에 해당하는 기사들만 로드
             embedding_ids = self.embeddings_data['cleaned_article_id'].tolist()
             
-            # 날짜 필터링 적용
-            query = self.supabase.client.table('articles_cleaned').select(
-                'id, title_cleaned, lead_paragraph, media_id, published_at'
-            ).in_('id', embedding_ids)
+            # 페이지네이션을 위한 배치 처리
+            all_articles = []
+            batch_size = 100  # Supabase IN 쿼리 제한 고려
             
-            # KCT 기준을 UTC로 변환
-            utc_range = get_kct_to_utc_range(self.date_filter)
-            
-            if utc_range:
-                utc_start, utc_end = utc_range
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                console=console
+            ) as progress:
                 
-                if self.date_filter == 'yesterday':
-                    query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
-                    # KCT 시간으로 표시 (사용자 친화적)
-                    kct_start = utc_start.astimezone(pytz.timezone('Asia/Seoul'))
-                    kct_end = utc_end.astimezone(pytz.timezone('Asia/Seoul'))
-                    console.print(f"📅 전날 기사 필터링 (KCT): {kct_start.strftime('%Y-%m-%d %H:%M')} ~ {kct_end.strftime('%Y-%m-%d %H:%M')}")
-                    console.print(f"📅 UTC 변환: {utc_start.strftime('%Y-%m-%d %H:%M')} ~ {utc_end.strftime('%Y-%m-%d %H:%M')}")
+                total_batches = (len(embedding_ids) + batch_size - 1) // batch_size
+                task = progress.add_task("기사 데이터 로드 중...", total=total_batches)
+                
+                for i in range(0, len(embedding_ids), batch_size):
+                    batch_ids = embedding_ids[i:i + batch_size]
                     
-                elif self.date_filter == 'today':
-                    query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
-                    # KCT 시간으로 표시 (사용자 친화적)
-                    kct_start = utc_start.astimezone(pytz.timezone('Asia/Seoul'))
-                    kct_end = utc_end.astimezone(pytz.timezone('Asia/Seoul'))
-                    console.print(f"📅 오늘 기사 필터링 (KCT): {kct_start.strftime('%Y-%m-%d %H:%M')} ~ {kct_end.strftime('%Y-%m-%d %H:%M')}")
-                    console.print(f"📅 UTC 변환: {utc_start.strftime('%Y-%m-%d %H:%M')} ~ {utc_end.strftime('%Y-%m-%d %H:%M')}")
+                    # articles_cleaned에서 기본 정보 조회
+                    cleaned_result = self.supabase.client.table('articles_cleaned').select(
+                        'id, article_id, title_cleaned, lead_paragraph'
+                    ).in_('id', batch_ids).execute()
+                    
+                    if not cleaned_result.data:
+                        progress.update(task, advance=1)
+                        continue
+                    
+                    # article_id들을 사용해서 원본 articles에서 추가 정보 조회
+                    article_ids = [item['article_id'] for item in cleaned_result.data]
+                    
+                    # 날짜 필터링 적용
+                    query = self.supabase.client.table('articles').select(
+                        'id, media_id, published_at'
+                    ).in_('id', article_ids)
+                    
+                    # KCT 기준을 UTC로 변환
+                    utc_range = get_kct_to_utc_range(self.date_filter)
+                    
+                    if utc_range:
+                        utc_start, utc_end = utc_range
+                        
+                        if self.date_filter == 'yesterday':
+                            query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                            
+                        elif self.date_filter == 'today':
+                            query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
+                    
+                    articles_result = query.execute()
+                    
+                    if articles_result.data:
+                        # 두 테이블의 데이터를 조인
+                        articles_dict = {item['id']: item for item in articles_result.data}
+                        
+                        for cleaned_item in cleaned_result.data:
+                            article_id = cleaned_item['article_id']
+                            if article_id in articles_dict:
+                                article_info = articles_dict[article_id]
+                                combined_item = {
+                                    'id': cleaned_item['id'],  # articles_cleaned의 id 사용
+                                    'article_id': article_id,  # 원본 articles의 id 추가
+                                    'title_cleaned': cleaned_item['title_cleaned'],
+                                    'lead_paragraph': cleaned_item['lead_paragraph'],
+                                    'media_id': article_info['media_id'],
+                                    'published_at': article_info['published_at']
+                                }
+                                all_articles.append(combined_item)
+                    
+                    progress.update(task, advance=1, description=f"기사 데이터 로드 중... ({len(all_articles)}개)")
             
-            result = query.execute()
-            
-            if not result.data:
+            if not all_articles:
                 console.print("❌ 기사 데이터가 없습니다.")
                 return False
             
-            self.articles_data = pd.DataFrame(result.data)
+            self.articles_data = pd.DataFrame(all_articles)
             
             # 날짜 필터링 결과 표시
             if self.date_filter:
-                console.print(f"✅ 기사 데이터 로드 완료: {len(result.data)}개 (날짜 필터링 적용)")
+                utc_range = get_kct_to_utc_range(self.date_filter)
+                if utc_range:
+                    utc_start, utc_end = utc_range
+                    kct_start = utc_start.astimezone(pytz.timezone('Asia/Seoul'))
+                    kct_end = utc_end.astimezone(pytz.timezone('Asia/Seoul'))
+                    console.print(f"📅 날짜 필터링 (KCT): {kct_start.strftime('%Y-%m-%d %H:%M')} ~ {kct_end.strftime('%Y-%m-%d %H:%M')}")
+                console.print(f"✅ 기사 데이터 로드 완료: {len(all_articles)}개 (날짜 필터링 적용)")
             else:
-                console.print(f"✅ 기사 데이터 로드 완료: {len(result.data)}개 (전체 기사)")
+                console.print(f"✅ 기사 데이터 로드 완료: {len(all_articles)}개 (전체 기사)")
             
             return True
             

@@ -45,7 +45,10 @@ class IssueGenerator:
                 return {
                     'title': f"클러스터 {cluster_info['cluster_id']}",
                     'subtitle': f"{cluster_info['size']}개 기사",
-                    'summary': "내용 분석 중 오류가 발생했습니다."
+                    'summary': "내용 분석 중 오류가 발생했습니다.",
+                    'left_view': "",
+                    'center_view': "",
+                    'right_view': ""
                 }
             
             # LLM 프롬프트
@@ -59,13 +62,16 @@ class IssueGenerator:
 제목: [간결하고 명확한 이슈 제목]
 부제목: [이슈에 대한 간단한 설명]
 요약: [이슈의 핵심 내용과 배경을 2-3문장으로 요약]
+진보적관점: [진보적 입장에서의 관점과 의견]
+중도적관점: [중도적 입장에서의 관점과 의견]
+보수적관점: [보수적 입장에서의 관점과 의견]
 """
             
             # OpenAI API 호출
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
+                max_tokens=800,
                 temperature=0.7
             )
             
@@ -76,6 +82,9 @@ class IssueGenerator:
             title = "정치 이슈"
             subtitle = f"{cluster_info['size']}개 기사"
             summary = content
+            left_view = ""
+            center_view = ""
+            right_view = ""
             
             for line in lines:
                 if line.startswith('제목:'):
@@ -84,11 +93,20 @@ class IssueGenerator:
                     subtitle = line.replace('부제목:', '').strip()
                 elif line.startswith('요약:'):
                     summary = line.replace('요약:', '').strip()
+                elif line.startswith('진보적관점:'):
+                    left_view = line.replace('진보적관점:', '').strip()
+                elif line.startswith('중도적관점:'):
+                    center_view = line.replace('중도적관점:', '').strip()
+                elif line.startswith('보수적관점:'):
+                    right_view = line.replace('보수적관점:', '').strip()
             
             return {
                 'title': title,
                 'subtitle': subtitle,
-                'summary': summary
+                'summary': summary,
+                'left_view': left_view,
+                'center_view': center_view,
+                'right_view': right_view
             }
             
         except Exception as e:
@@ -96,13 +114,16 @@ class IssueGenerator:
             return {
                 'title': f"클러스터 {cluster_info['cluster_id']}",
                 'subtitle': f"{cluster_info['size']}개 기사",
-                'summary': "내용 분석 중 오류가 발생했습니다."
+                'summary': "내용 분석 중 오류가 발생했습니다.",
+                'left_view': "",
+                'center_view': "",
+                'right_view': ""
             }
     
-    async def generate_title_only(self, cluster_info: dict) -> dict:
-        """제목만 LLM으로 생성하고 나머지는 기본값 설정"""
+    async def generate_title_and_subtitle(self, cluster_info: dict) -> dict:
+        """제목과 부제목을 LLM으로 생성하고 나머지는 기본값 설정"""
         try:
-            console.print(f"🤖 클러스터 {cluster_info['cluster_id']} 제목 생성 중...")
+            console.print(f"🤖 클러스터 {cluster_info['cluster_id']} 제목+부제목 생성 중...")
             
             # 클러스터의 기사 제목들만 수집 (최대 3개)
             article_titles = []
@@ -115,46 +136,68 @@ class IssueGenerator:
                 return {
                     'title': f"정치 이슈 {cluster_info['cluster_id']}",
                     'subtitle': f"{cluster_info['size']}개 기사",
-                    'summary': f"클러스터 {cluster_info['cluster_id']}에 속한 {cluster_info['size']}개의 기사들"
+                    'summary': f"클러스터 {cluster_info['cluster_id']}에 속한 {cluster_info['size']}개의 기사들",
+                    'left_view': "",
+                    'center_view': "",
+                    'right_view': ""
                 }
             
-            # 간단한 제목 생성 프롬프트
+            # 제목과 부제목 생성 프롬프트
             titles_text = "\n".join(article_titles)
             prompt = f"""
-다음 정치 뉴스 제목들을 분석하여 하나의 간결한 이슈 제목을 만들어주세요:
+다음 정치 뉴스 제목들을 분석하여 이슈 제목과 부제목을 만들어주세요:
 
 {titles_text}
 
+다음 형식으로 응답해주세요:
+제목: [10-20자 이내의 간결한 이슈 제목]
+부제목: [이슈에 대한 간단한 설명, 30자 이내]
+
 요구사항:
-- 10-20자 이내의 간결한 제목
-- 핵심 키워드 포함
-- 명확하고 이해하기 쉬운 표현
-- 제목만 출력하고 다른 설명은 하지 마세요
+- 제목: 핵심 키워드 포함, 명확하고 이해하기 쉬운 표현
+- 부제목: 이슈의 핵심 내용을 간단히 설명
 """
             
-            # OpenAI API 호출 (토큰 수 최소화)
+            # OpenAI API 호출
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=50,  # 제목만 생성하므로 토큰 수 최소화
+                max_tokens=100,
                 temperature=0.7
             )
             
-            title = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
+            
+            # 응답 파싱
+            lines = content.split('\n')
+            title = f"정치 이슈 {cluster_info['cluster_id']}"
+            subtitle = f"{cluster_info['size']}개 기사"
+            
+            for line in lines:
+                if line.startswith('제목:'):
+                    title = line.replace('제목:', '').strip()
+                elif line.startswith('부제목:'):
+                    subtitle = line.replace('부제목:', '').strip()
             
             # 기본값으로 나머지 필드 설정
             return {
                 'title': title,
-                'subtitle': f"{cluster_info['size']}개 기사",
-                'summary': f"클러스터 {cluster_info['cluster_id']}에 속한 {cluster_info['size']}개의 기사들"
+                'subtitle': subtitle,
+                'summary': f"클러스터 {cluster_info['cluster_id']}에 속한 {cluster_info['size']}개의 기사들",
+                'left_view': "",
+                'center_view': "",
+                'right_view': ""
             }
             
         except Exception as e:
-            console.print(f"❌ 제목 생성 실패: {e}")
+            console.print(f"❌ 제목+부제목 생성 실패: {e}")
             return {
                 'title': f"정치 이슈 {cluster_info['cluster_id']}",
                 'subtitle': f"{cluster_info['size']}개 기사",
-                'summary': f"클러스터 {cluster_info['cluster_id']}에 속한 {cluster_info['size']}개의 기사들"
+                'summary': f"클러스터 {cluster_info['cluster_id']}에 속한 {cluster_info['size']}개의 기사들",
+                'left_view': "",
+                'center_view': "",
+                'right_view': ""
             }
     
     def analyze_political_bias(self, cluster_info: dict) -> dict:
@@ -206,14 +249,9 @@ class IssueGenerator:
             for i, cluster_info in enumerate(sorted_clusters):
                 is_top1 = (i == 0)  # 첫 번째가 TOP1
                 
-                if is_top1:
-                    # TOP1: 전체 내용 LLM 생성
-                    console.print(f"🏆 TOP1 클러스터 {cluster_info['cluster_id']} - 전체 내용 생성")
-                    issue_content = await self.generate_issue_content(cluster_info)
-                else:
-                    # 나머지: title만 LLM 생성
-                    console.print(f"📝 클러스터 {cluster_info['cluster_id']} - 제목만 생성")
-                    issue_content = await self.generate_title_only(cluster_info)
+                # 모든 클러스터: 전체 내용 + 관점 LLM 생성
+                console.print(f"🤖 클러스터 {cluster_info['cluster_id']} - 전체 내용 + 관점 생성")
+                issue_content = await self.generate_issue_content(cluster_info)
                 
                 # 정치 성향 분석
                 bias_analysis = self.analyze_political_bias(cluster_info)
@@ -226,6 +264,9 @@ class IssueGenerator:
                     'left_source': str(bias_analysis['left']),
                     'center_source': str(bias_analysis['center']),
                     'right_source': str(bias_analysis['right']),
+                    'left_view': issue_content.get('left_view', ''),
+                    'center_view': issue_content.get('center_view', ''),
+                    'right_view': issue_content.get('right_view', ''),
                     'source': str(cluster_info['size']),
                     'date': datetime.now().date().isoformat()
                 }
@@ -236,11 +277,11 @@ class IssueGenerator:
                 if issue_result.data:
                     issue_id = issue_result.data[0]['id']
                     
-                    # issue_articles 매핑 저장
-                    for embedding_id in cluster_info['embedding_ids']:
+                    # issue_articles 매핑 저장 (원본 articles의 id 사용)
+                    for article in cluster_info['articles']:
                         mapping_data = {
                             'issue_id': issue_id,
-                            'article_id': embedding_id,
+                            'article_id': article['article_id'],  # 원본 articles의 id 사용
                             'stance': 'center'
                         }
                         self.supabase.client.table('issue_articles').insert(mapping_data).execute()

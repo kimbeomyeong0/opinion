@@ -75,9 +75,9 @@ class ClusterProcessor:
             
             n_samples = len(self.embeddings)
             
-            # 단순한 파라미터 설정
-            min_cluster_size = max(3, n_samples // 200)
-            min_samples = max(2, min_cluster_size // 2)
+            # 적절한 클러스터 수를 위한 파라미터 설정 (5-10개 클러스터 목표)
+            min_cluster_size = max(20, n_samples // 50)  # 686개 → 약 13-14개 클러스터
+            min_samples = max(10, min_cluster_size // 2)
             
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=min_cluster_size,

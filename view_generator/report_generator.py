@@ -19,14 +19,27 @@ class ReportGenerator:
             raise ValueError("Supabase 연결 실패")
     
     def get_issues_data(self):
-        """Issues 테이블에서 데이터 조회"""
+        """Issues 테이블에서 데이터 조회 (기사 수 순으로 정렬)"""
         try:
             result = self.supabase.client.table('issues')\
                 .select('id, title, subtitle, summary, left_source, center_source, right_source, left_view, center_view, right_view, created_at, timeline, why, history')\
-                .order('created_at', desc=True)\
                 .execute()
             
-            return result.data if result.data else []
+            if not result.data:
+                return []
+            
+            issues = result.data
+            
+            # 기사 수가 많은 순서대로 정렬
+            def get_total_source_count(issue):
+                left_count = int(issue.get('left_source', 0)) if issue.get('left_source') else 0
+                center_count = int(issue.get('center_source', 0)) if issue.get('center_source') else 0
+                right_count = int(issue.get('right_source', 0)) if issue.get('right_source') else 0
+                return left_count + center_count + right_count
+            
+            issues.sort(key=get_total_source_count, reverse=True)
+            return issues
+            
         except Exception as e:
             print(f"❌ 데이터 조회 실패: {str(e)}")
             return []
@@ -272,8 +285,8 @@ class ReportGenerator:
         }}
         
         .view.left {{
-            background-color: #fff5f5;
-            border-color: #ff6b6b;
+            background-color: #f0f8ff;
+            border-color: #4dabf7;
         }}
         
         .view.center {{
@@ -282,8 +295,8 @@ class ReportGenerator:
         }}
         
         .view.right {{
-            background-color: #f0f8ff;
-            border-color: #4dabf7;
+            background-color: #fff5f5;
+            border-color: #ff6b6b;
         }}
         
         .view-header {{
@@ -299,7 +312,7 @@ class ReportGenerator:
         }}
         
         .view.left .view-title {{
-            color: #c92a2a;
+            color: #1971c2;
         }}
         
         .view.center .view-title {{
@@ -307,7 +320,7 @@ class ReportGenerator:
         }}
         
         .view.right .view-title {{
-            color: #1971c2;
+            color: #c92a2a;
         }}
         
         .view-source {{
@@ -316,6 +329,86 @@ class ReportGenerator:
             background-color: rgba(0,0,0,0.05);
             padding: 4px 8px;
             border-radius: 4px;
+        }}
+        
+        .bias-gauge {{
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }}
+        
+        .gauge-title {{
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }}
+        
+        .gauge-container {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        
+        .gauge-bar {{
+            flex: 1;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }}
+        
+        .gauge-fill {{
+            height: 100%;
+            display: flex;
+            transition: width 0.3s ease;
+        }}
+        
+        .gauge-left {{
+            background: linear-gradient(90deg, #1971c2, #339af0);
+        }}
+        
+        .gauge-center {{
+            background: linear-gradient(90deg, #fab005, #ffd43b);
+        }}
+        
+        .gauge-right {{
+            background: linear-gradient(90deg, #c92a2a, #ff6b6b);
+        }}
+        
+        .gauge-labels {{
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #666;
+        }}
+        
+        .gauge-label {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }}
+        
+        .gauge-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }}
+        
+        .gauge-dot.left {{
+            background-color: #1971c2;
+        }}
+        
+        .gauge-dot.center {{
+            background-color: #fab005;
+        }}
+        
+        .gauge-dot.right {{
+            background-color: #c92a2a;
         }}
         
         .view-content {{
@@ -414,6 +507,8 @@ class ReportGenerator:
                 {f'<div class="issue-history"><strong>이슈의 배경과 역사</strong><br>{history}</div>' if history else ''}
                 {f'<div class="issue-timeline"><strong>주요 일정과 흐름</strong><br>{timeline}</div>' if timeline else ''}
                 
+                {self._generate_bias_gauge_html(left_source, center_source, right_source)}
+                
                 <div class="views-container">
                     {self._generate_view_html('left', '진보적 관점', left_source, left_view)}
                     {self._generate_view_html('center', '중도적 관점', center_source, center_view)}
@@ -429,6 +524,50 @@ class ReportGenerator:
             html_parts.append(issue_html)
         
         return '\n'.join(html_parts)
+    
+    def _generate_bias_gauge_html(self, left_source, center_source, right_source):
+        """성향별 기사 수 게이지 HTML 생성"""
+        # 문자열을 정수로 변환
+        left_count = int(left_source) if left_source else 0
+        center_count = int(center_source) if center_source else 0
+        right_count = int(right_source) if right_source else 0
+        
+        total = left_count + center_count + right_count
+        if total == 0:
+            return ""
+        
+        left_percent = (left_count / total) * 100
+        center_percent = (center_count / total) * 100
+        right_percent = (right_count / total) * 100
+        
+        return f"""
+        <div class="bias-gauge">
+            <div class="gauge-title">📊 언론사별 기사 수 분포</div>
+            <div class="gauge-container">
+                <div class="gauge-bar">
+                    <div class="gauge-fill">
+                        <div class="gauge-left" style="width: {left_percent:.1f}%"></div>
+                        <div class="gauge-center" style="width: {center_percent:.1f}%"></div>
+                        <div class="gauge-right" style="width: {right_percent:.1f}%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="gauge-labels">
+                <div class="gauge-label">
+                    <div class="gauge-dot left"></div>
+                    <span>진보 {left_count}개 ({left_percent:.1f}%)</span>
+                </div>
+                <div class="gauge-label">
+                    <div class="gauge-dot center"></div>
+                    <span>중도 {center_count}개 ({center_percent:.1f}%)</span>
+                </div>
+                <div class="gauge-label">
+                    <div class="gauge-dot right"></div>
+                    <span>보수 {right_count}개 ({right_percent:.1f}%)</span>
+                </div>
+            </div>
+        </div>
+        """
     
     def _generate_view_html(self, bias, title, source_count, view_content):
         """개별 관점 HTML 생성"""
