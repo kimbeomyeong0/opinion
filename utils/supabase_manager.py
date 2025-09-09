@@ -129,9 +129,9 @@ class SupabaseManager:
             return []
         
         try:
-            # merged_content가 있는 기사만 조회
+            # merged_content가 있는 기사만 조회 (article_id, media_id 포함)
             query = self.client.table('articles_cleaned')\
-                .select('id, article_id, merged_content')\
+                .select('id, article_id, media_id, merged_content, published_at')\
                 .not_.is_('merged_content', 'null')\
                 .neq('merged_content', '')\
                 .order('created_at', desc=True)
@@ -335,6 +335,8 @@ class SupabaseManager:
     
     def create_embedding_record(self, 
                               cleaned_article_id: str, 
+                              article_id: str,
+                              media_id: str,
                               embedding_vector: List[float],
                               embedding_type: str = "combined",
                               model_name: str = None,
@@ -343,7 +345,9 @@ class SupabaseManager:
         임베딩 레코드 생성
         
         Args:
-            cleaned_article_id: 기사 ID
+            cleaned_article_id: articles_cleaned 테이블의 ID
+            article_id: articles 테이블의 ID
+            media_id: media_outlets 테이블의 ID
             embedding_vector: 임베딩 벡터
             embedding_type: 임베딩 타입
             model_name: 모델 이름 (None이면 config에서 가져옴)
@@ -363,6 +367,8 @@ class SupabaseManager:
         
         return {
             'cleaned_article_id': cleaned_article_id,
+            'article_id': article_id,
+            'media_id': media_id,
             'embedding_type': embedding_type,
             'embedding_vector': embedding_vector,
             'model_name': model_name,

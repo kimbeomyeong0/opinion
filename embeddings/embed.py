@@ -273,6 +273,8 @@ class EmbeddingProcessor:
                 if embedding:
                     record = self.supabase.create_embedding_record(
                         cleaned_article_id=article['id'],
+                        article_id=article['article_id'],
+                        media_id=article['media_id'],
                         embedding_vector=embedding,
                         embedding_type=self.config["embedding_types"]["CLUSTERING"]
                     )
