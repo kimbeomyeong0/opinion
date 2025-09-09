@@ -15,6 +15,7 @@ import hdbscan
 from rich.console import Console
 
 from utils.supabase_manager import get_supabase_client
+from clustering.config import get_config
 
 console = Console()
 
@@ -23,6 +24,7 @@ class ClusterProcessor:
     
     def __init__(self, embeddings, embeddings_data, articles_data, media_outlets):
         """초기화"""
+        self.config = get_config()
         self.supabase = get_supabase_client()
         self.embeddings = embeddings
         self.embeddings_data = embeddings_data
@@ -40,7 +42,7 @@ class ClusterProcessor:
             
             n_samples = len(self.embeddings)
             
-            # 단순한 파라미터 설정
+            # config 기반 파라미터 설정
             if n_samples < 100:
                 n_neighbors = min(5, n_samples - 1)
                 min_dist = 0.1
@@ -48,11 +50,11 @@ class ClusterProcessor:
                 n_neighbors = min(10, n_samples // 10)
                 min_dist = 0.2
             else:
-                n_neighbors = 25
-                min_dist = 0.1
+                n_neighbors = self.config["umap_n_neighbors"]
+                min_dist = self.config["umap_min_dist"]
             
             reducer = umap.UMAP(
-                n_components=2,
+                n_components=self.config["umap_n_components"],
                 n_neighbors=n_neighbors,
                 min_dist=min_dist,
                 random_state=42,
@@ -75,9 +77,9 @@ class ClusterProcessor:
             
             n_samples = len(self.embeddings)
             
-            # 적절한 클러스터 수를 위한 파라미터 설정 (5-10개 클러스터 목표)
-            min_cluster_size = max(20, n_samples // 50)  # 686개 → 약 13-14개 클러스터
-            min_samples = max(10, min_cluster_size // 2)
+            # config 기반 파라미터 설정 (config 값 우선 사용)
+            min_cluster_size = self.config["hdbscan_min_cluster_size"]
+            min_samples = self.config["hdbscan_min_samples"]
             
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=min_cluster_size,

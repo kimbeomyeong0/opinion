@@ -13,9 +13,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 
-from data_loader import DataLoader
-from cluster_processor import ClusterProcessor
-from issue_generator import IssueGenerator
+from clustering.data_loader import DataLoader
+from clustering.cluster_processor import ClusterProcessor
+from clustering.issue_generator import IssueGenerator
+from clustering.config import get_config
 
 console = Console()
 
@@ -46,6 +47,7 @@ class SimpleClusterer:
     
     def __init__(self, date_filter=None):
         """초기화"""
+        self.config = get_config()
         self.data_loader = DataLoader(date_filter)
         self.cluster_processor = None
         self.issue_generator = None

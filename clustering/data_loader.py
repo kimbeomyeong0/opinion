@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn
 
 from utils.supabase_manager import get_supabase_client
+from clustering.config import get_config
 
 console = Console()
 
@@ -72,6 +73,7 @@ class DataLoader:
                 - 'yesterday': 전날 기사만 (KCT 기준 00:00-23:59)
                 - 'today': 오늘 기사만
         """
+        self.config = get_config()
         self.supabase = get_supabase_client()
         self.embeddings_data = None
         self.articles_data = None
@@ -86,7 +88,7 @@ class DataLoader:
             
             all_embeddings = []
             offset = 0
-            batch_size = 100
+            batch_size = self.config["batch_size"]
             
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
@@ -100,7 +102,7 @@ class DataLoader:
                 
                 while True:
                     result = self.supabase.client.table('articles_embeddings').select(
-                        'cleaned_article_id, embedding_vector, model_name'
+                        'cleaned_article_id, article_id, media_id, embedding_vector, model_name'
                     ).eq('embedding_type', 'combined').range(offset, offset + batch_size - 1).execute()
                     
                     if not result.data:
@@ -141,7 +143,7 @@ class DataLoader:
             
             # 페이지네이션을 위한 배치 처리
             all_articles = []
-            batch_size = 100  # Supabase IN 쿼리 제한 고려
+            batch_size = self.config["batch_size"]  # Supabase IN 쿼리 제한 고려
             
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
