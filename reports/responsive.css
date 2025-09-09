@@ -1,188 +1,178 @@
-/* 반응형 디자인 */
+/* 미니멀 블로그 반응형 스타일 */
 
-/* 태블릿 (768px 이하) */
+/* 태블릿 */
 @media (max-width: 768px) {
     .container {
-        padding: 0 15px;
+        padding: 0 var(--spacing-sm);
     }
     
-    .header-title {
-        font-size: 2rem;
-        flex-direction: column;
-        gap: 0.5rem;
+    .header {
+        padding: var(--spacing-md) 0;
+        margin-bottom: var(--spacing-lg);
     }
     
-    .header-subtitle {
-        font-size: 1rem;
+    .brand-title {
+        font-size: var(--font-size-lg);
     }
     
-    .summary-stats {
+    .intro {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .intro-text {
+        font-size: var(--font-size-base);
+    }
+    
+    .post-title {
+        font-size: var(--font-size-xl);
+    }
+    
+    .views-grid {
         grid-template-columns: 1fr;
-        gap: 1rem;
-    }
-    
-    .stat-item {
-        padding: 0.75rem;
-    }
-    
-    .stat-number {
-        font-size: 1.5rem;
-    }
-    
-    .issue-card {
-        padding: 1.5rem;
-    }
-    
-    .issue-title {
-        font-size: 1.3rem;
-    }
-    
-    .view-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.5rem;
-    }
-    
-    .view-stats {
-        align-self: flex-end;
-    }
-    
-    .issue-footer {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.5rem;
     }
 }
 
-/* 모바일 (480px 이하) */
+/* 모바일 */
 @media (max-width: 480px) {
-    .header {
-        padding: 1.5rem 0;
+    :root {
+        --spacing-xs: 0.25rem;
+        --spacing-sm: 0.75rem;
+        --spacing-md: 1rem;
+        --spacing-lg: 1.5rem;
+        --spacing-xl: 2rem;
     }
     
-    .header-title {
-        font-size: 1.8rem;
+    .container {
+        padding: 0 var(--spacing-sm);
     }
     
-    .main {
-        padding: 1.5rem 0;
+    .nav {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-xs);
     }
     
-    .summary-card {
-        padding: 1.5rem;
+    .brand-title {
+        font-size: var(--font-size-base);
     }
     
-    .summary-card h2 {
-        font-size: 1.3rem;
+    .nav-meta {
+        font-size: 0.75rem;
     }
     
-    .issues-section h2 {
-        font-size: 1.5rem;
+    .intro-text {
+        font-size: var(--font-size-sm);
     }
     
-    .issue-card {
-        padding: 1rem;
+    .intro-stats {
+        flex-direction: column;
+        align-items: center;
+        gap: var(--spacing-sm);
     }
     
-    .issue-title {
-        font-size: 1.2rem;
+    .stat {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
     }
     
-    .issue-summary {
-        padding: 0.75rem;
+    .post-title {
+        font-size: var(--font-size-lg);
+    }
+    
+    .post-subtitle {
+        font-size: var(--font-size-sm);
+    }
+    
+    .post-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+    
+    .post-summary {
+        padding: var(--spacing-sm);
+    }
+    
+    .post-summary p {
+        font-size: var(--font-size-sm);
+    }
+    
+    .views-title {
+        font-size: var(--font-size-base);
     }
     
     .view-header {
-        padding: 0.75rem;
+        padding: var(--spacing-sm);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-xs);
+    }
+    
+    .view-title {
+        font-size: var(--font-size-sm);
+    }
+    
+    .view-count {
+        font-size: 0.75rem;
+        padding: 1px 6px;
     }
     
     .view-content {
-        padding: 0.75rem;
+        padding: var(--spacing-sm);
     }
     
-    .view-stats {
-        font-size: 0.8rem;
-        padding: 0.2rem 0.5rem;
+    .view-content p {
+        font-size: var(--font-size-sm);
     }
 }
 
-/* 대형 화면 (1200px 이상) */
-@media (min-width: 1200px) {
-    .issues-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 2.5rem;
+/* 다크 모드 */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --primary: #fff;
+        --secondary: #ccc;
+        --muted: #888;
+        --border: #333;
+        --background: #000;
+        --text: #e5e5e5;
+        --accent: #4dabf7;
+        --accent-light: #1a1a1a;
     }
     
-    .issue-card {
-        padding: 2.5rem;
-    }
-}
-
-/* 초대형 화면 (1600px 이상) */
-@media (min-width: 1600px) {
-    .container {
-        max-width: 1400px;
+    .post-summary {
+        background: #111;
     }
     
-    .issues-grid {
-        grid-template-columns: repeat(3, 1fr);
+    .view-header {
+        background: #111;
+    }
+    
+    .view-count {
+        background: #000;
     }
 }
 
 /* 인쇄 스타일 */
 @media print {
     .header {
-        background: none !important;
-        color: var(--text-color) !important;
-        box-shadow: none !important;
+        border-bottom: 2px solid #000;
     }
     
-    .issue-card {
-        box-shadow: none !important;
-        border: 1px solid var(--border-color) !important;
+    .post {
         break-inside: avoid;
-        margin-bottom: 1rem;
+        page-break-inside: avoid;
     }
     
-    .view-item {
+    .view-card {
         break-inside: avoid;
+        page-break-inside: avoid;
     }
     
     .footer {
         display: none;
     }
-}
-
-/* 다크 모드 지원 */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --background-color: #1f2937;
-        --text-color: #f9fafb;
-        --white: #374151;
-        --border-color: #4b5563;
-    }
     
-    .issue-card {
-        background: var(--white);
-    }
-    
-    .view-content {
-        background: var(--white);
-    }
-    
-    .summary-card {
-        background: var(--white);
-    }
-    
-    .stat-item {
-        background: var(--background-color);
-    }
-    
-    .issue-summary {
-        background: var(--background-color);
-    }
-    
-    .view-header {
-        background: var(--background-color);
+    .intro-stats {
+        display: none;
     }
 }
