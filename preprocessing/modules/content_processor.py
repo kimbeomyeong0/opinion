@@ -68,7 +68,7 @@ class ContentProcessor:
                     
                     if merged_content:
                         # 데이터베이스에 저장
-                        success = self._save_merged_content(article['id'], merged_content, lead_paragraph)
+                        success = self._save_merged_content(article, merged_content)
                         
                         if success:
                             successful_saves += 1
@@ -81,6 +81,7 @@ class ContentProcessor:
                         failed_merges += 1
                         
                 except Exception as e:
+                    print(f"❌ 기사 처리 실패 (ID: {article.get('id', 'unknown')}): {str(e)}")
                     failed_saves += 1
                     failed_merges += 1
                     continue
@@ -105,66 +106,106 @@ class ContentProcessor:
             )
     
     def _fetch_articles_for_merge(self) -> List[Dict[str, Any]]:
-        """통합할 기사들 조회 (articles_cleaned 테이블의 모든 기사)"""
+        """통합할 기사들 조회 (articles 테이블에서 articles_cleaned에 없는 기사들) - 페이지네이션 적용"""
         try:
-            result = self.supabase_manager.client.table('articles_cleaned').select(
-                'id, title_cleaned, lead_paragraph'
-            ).is_('merged_content', 'null').execute()
+            # 먼저 이미 전처리된 기사 ID들을 가져옴
+            processed_result = self.supabase_manager.client.table('articles_cleaned').select('article_id').execute()
+            processed_ids = set(item['article_id'] for item in processed_result.data)
             
-            print(f"📅 content_processor: articles_cleaned 테이블의 모든 기사 처리")
-            return result.data if result else []
+            # 페이지네이션을 위한 변수들
+            all_articles = []
+            page_size = 1000  # Supabase 제한
+            offset = 0
+            
+            print(f"📅 content_processor: articles 테이블의 전처리 대기 기사 처리 (페이지네이션 적용)")
+            
+            while True:
+                # articles 테이블에서 페이지별로 기사 조회
+                result = self.supabase_manager.client.table('articles').select(
+                    'id, title, content, media_id, published_at'
+                ).range(offset, offset + page_size - 1).execute()
+                
+                if not result.data:
+                    break  # 더 이상 데이터가 없으면 종료
+                
+                # 이미 전처리된 기사 제외
+                new_articles = [article for article in result.data if article['id'] not in processed_ids]
+                all_articles.extend(new_articles)
+                
+                print(f"  - 페이지 {offset//page_size + 1}: {len(result.data)}개 조회, {len(new_articles)}개 신규 (총 {len(all_articles)}개)")
+                
+                # 마지막 페이지인 경우 (조회된 데이터가 page_size보다 적으면)
+                if len(result.data) < page_size:
+                    break
+                
+                offset += page_size
+            
+            print(f"✅ 총 {len(all_articles)}개 신규 기사 조회 완료")
+            return all_articles
+            
         except Exception as e:
             print(f"❌ 기사 조회 실패: {str(e)}")
             return []
     
     def _extract_lead_paragraph(self, article: Dict[str, Any]) -> str:
-        """리드문 추출"""
-        # 기존 lead_paragraph가 있으면 사용
-        lead_paragraph = article.get('lead_paragraph', '').strip()
+        """리드문 추출 - content에서 첫 번째 문단 추출"""
+        content = article.get('content', '').strip()
         
-        if lead_paragraph:
-            return lead_paragraph
+        if not content:
+            return ''
         
-        # lead_paragraph가 없으면 title_cleaned를 리드문으로 사용
-        title_cleaned = article.get('title_cleaned', '').strip()
-        if title_cleaned:
-            return title_cleaned
+        # 첫 번째 문단 추출 (줄바꿈으로 구분)
+        paragraphs = content.split('\n')
+        first_paragraph = paragraphs[0].strip() if paragraphs else ''
         
-        # 둘 다 없으면 빈 문자열
-        return ''
+        # 첫 번째 문단이 너무 짧으면 처음 200자 사용
+        if len(first_paragraph) < 50:
+            return content[:200].strip()
+        
+        return first_paragraph
     
     def _merge_content(self, article: Dict[str, Any], lead_paragraph: str) -> Optional[str]:
-        """내용 통합"""
-        title_cleaned = article.get('title_cleaned', '').strip()
+        """내용 통합 - title + lead만 통합 (기사 본문 제외)"""
+        title = article.get('title', '').strip()
         lead = lead_paragraph.strip()
         
-        if not title_cleaned and not lead:
+        if not title and not lead:
             return None
         
-        # 통합 전략 결정
-        if title_cleaned and lead:
-            merged = f"{title_cleaned}\n\n{lead}"
-            self.merge_strategies['title_lead'] += 1
-        elif title_cleaned:
-            merged = title_cleaned
+        # 통합 전략 결정 (제목 + 리드만)
+        merged_parts = []
+        
+        if title:
+            merged_parts.append(f"제목: {title}")
             self.merge_strategies['title_only'] += 1
-        elif lead:
-            merged = lead
-            self.merge_strategies['lead_only'] += 1
-        else:
-            return None
         
-        return merged
+        if lead:
+            merged_parts.append(f"리드: {lead}")
+            self.merge_strategies['lead_only'] += 1
+        
+        if len(merged_parts) > 1:
+            self.merge_strategies['title_lead'] += 1
+        
+        return '\n\n'.join(merged_parts)
     
-    def _save_merged_content(self, article_id: str, merged_content: str, lead_paragraph: str) -> bool:
-        """통합된 내용 저장"""
+    def _save_merged_content(self, article: Dict[str, Any], merged_content: str) -> bool:
+        """통합된 내용을 articles_cleaned 테이블에 저장"""
         try:
-            result = self.supabase_manager.client.table('articles_cleaned').update({
+            # articles_cleaned 테이블에 새 레코드 생성
+            data = {
+                'article_id': article['id'],
                 'merged_content': merged_content,
-                'lead_paragraph': lead_paragraph,
-                'updated_at': 'now()'
-            }).eq('id', article_id).execute()
+                'media_id': article['media_id'],
+                'published_at': article['published_at']
+            }
             
-            return bool(result.data)
+            result = self.supabase_manager.client.table('articles_cleaned').insert(data).execute()
+            
+            if result.data:
+                # articles 테이블에는 preprocessing_status 컬럼이 없으므로 업데이트 불필요
+                return True
+            
+            return False
         except Exception as e:
+            print(f"❌ 저장 실패: {str(e)}")
             return False

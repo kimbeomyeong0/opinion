@@ -132,7 +132,7 @@ class DataLoader:
             return False
     
     def load_articles_data(self) -> bool:
-        """기사 데이터 로드 - articles_cleaned와 articles 테이블 조인"""
+        """기사 데이터 로드 - 최적화된 단일 쿼리"""
         try:
             console.print("📰 기사 데이터 로드 중...")
             
@@ -157,24 +157,12 @@ class DataLoader:
                 for i in range(0, len(embedding_ids), batch_size):
                     batch_ids = embedding_ids[i:i + batch_size]
                     
-                    # articles_cleaned에서 기본 정보 조회
-                    cleaned_result = self.supabase.client.table('articles_cleaned').select(
-                        'id, article_id, title_cleaned, lead_paragraph'
-                    ).in_('id', batch_ids).execute()
+                    # 최적화: articles_cleaned에서 모든 필요한 정보를 한 번에 조회
+                    query = self.supabase.client.table('articles_cleaned').select(
+                        'id, article_id, merged_content, media_id, published_at'
+                    ).in_('id', batch_ids)
                     
-                    if not cleaned_result.data:
-                        progress.update(task, advance=1)
-                        continue
-                    
-                    # article_id들을 사용해서 원본 articles에서 추가 정보 조회
-                    article_ids = [item['article_id'] for item in cleaned_result.data]
-                    
-                    # 날짜 필터링 적용
-                    query = self.supabase.client.table('articles').select(
-                        'id, media_id, published_at'
-                    ).in_('id', article_ids)
-                    
-                    # KCT 기준을 UTC로 변환
+                    # 날짜 필터링 적용 (articles_cleaned의 published_at 사용)
                     utc_range = get_kct_to_utc_range(self.date_filter)
                     
                     if utc_range:
@@ -186,25 +174,19 @@ class DataLoader:
                         elif self.date_filter == 'today':
                             query = query.gte('published_at', utc_start.isoformat()).lte('published_at', utc_end.isoformat())
                     
-                    articles_result = query.execute()
+                    result = query.execute()
                     
-                    if articles_result.data:
-                        # 두 테이블의 데이터를 조인
-                        articles_dict = {item['id']: item for item in articles_result.data}
-                        
-                        for cleaned_item in cleaned_result.data:
-                            article_id = cleaned_item['article_id']
-                            if article_id in articles_dict:
-                                article_info = articles_dict[article_id]
-                                combined_item = {
-                                    'id': cleaned_item['id'],  # articles_cleaned의 id 사용
-                                    'article_id': article_id,  # 원본 articles의 id 추가
-                                    'title_cleaned': cleaned_item['title_cleaned'],
-                                    'lead_paragraph': cleaned_item['lead_paragraph'],
-                                    'media_id': article_info['media_id'],
-                                    'published_at': article_info['published_at']
-                                }
-                                all_articles.append(combined_item)
+                    if result.data:
+                        # 단일 쿼리 결과를 바로 사용 (JOIN 불필요)
+                        for item in result.data:
+                            article_item = {
+                                'id': item['id'],  # articles_cleaned의 id 사용
+                                'article_id': item['article_id'],  # 원본 articles의 id
+                                'merged_content': item['merged_content'],
+                                'media_id': item['media_id'],
+                                'published_at': item['published_at']
+                            }
+                            all_articles.append(article_item)
                     
                     progress.update(task, advance=1, description=f"기사 데이터 로드 중... ({len(all_articles)}개)")
             

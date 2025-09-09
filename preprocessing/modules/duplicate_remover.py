@@ -86,21 +86,8 @@ class IntegratedPreprocessor:
                         'id, title, content, published_at, url, media_id'
                     ).order('published_at', desc=True)
                     
-                    # 날짜 필터링 적용 (KST 9월 8일 → UTC 9월 7일 15:00 ~ 9월 8일 14:59)
-                    from datetime import datetime, timedelta, timezone
-                    
-                    # KST 9월 8일 → UTC 변환
-                    kst_yesterday = datetime(2025, 9, 8)
-                    utc_start = kst_yesterday.replace(hour=0, minute=0, second=0, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
-                    utc_end = kst_yesterday.replace(hour=23, minute=59, second=59, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
-                    
-                    # UTC 문자열로 변환
-                    utc_start_str = utc_start.strftime('%Y-%m-%dT%H:%M:%SZ')
-                    utc_end_str = utc_end.strftime('%Y-%m-%dT%H:%M:%SZ')
-                    
-                    # 날짜 필터 적용
-                    query = query.gte('published_at', utc_start_str).lt('published_at', utc_end_str)
-                    print(f"📅 날짜 필터 적용: {utc_start_str} ~ {utc_end_str} (KST 9월 8일)")
+                    # 날짜 필터 제거 - 모든 기사 처리
+                    print(f"📅 모든 기사 처리 (날짜 필터 없음)")
                     
                     
                     query = query.range(offset, offset + page_size - 1)
@@ -302,33 +289,14 @@ class IntegratedPreprocessor:
                 else:
                     lead_paragraph = ''
                 
+                # merged_content 생성 (제목 + 리드만, 기사 본문 제외)
+                merged_content = f"제목: {article.get('title', '')}\n\n리드: {lead_paragraph}"
+                
                 cleaned_article = {
                     'article_id': article['id'],
-                    'title_cleaned': article.get('title', ''),
-                    'lead_paragraph': lead_paragraph,
-                    'preprocessing_metadata': {
-                        'duplicate_removal': {
-                            'processed_at': datetime.now().isoformat(),
-                            'title_duplicates_removed': 0,  # 개별 기사에서는 0
-                            'content_duplicates_removed': 0,
-                            'similarity_threshold': self.similarity_calculator.content_threshold,
-                            'method': 'hybrid'
-                        },
-                        'basic_filter': {
-                            'processed_at': datetime.now().isoformat(),
-                            'no_content_removed': False,
-                            'news_agency_removed': False,
-                            'short_article_removed': False
-                        },
-                        'lead_extraction': {
-                            'processed_at': datetime.now().isoformat(),
-                            'max_sentences': 3,
-                            'lead_length': len(lead_paragraph),
-                            'original_length': len(article.get('content', ''))
-                        }
-                    },
-                    'created_at': datetime.now().isoformat(),
-                    'updated_at': datetime.now().isoformat()
+                    'merged_content': merged_content,
+                    'media_id': article.get('media_id'),
+                    'published_at': article.get('published_at')
                 }
                 cleaned_articles.append(cleaned_article)
             
@@ -338,6 +306,7 @@ class IntegratedPreprocessor:
                 try:
                     result = self.supabase_manager.client.table('articles_cleaned').insert([article]).execute()
                     if result.data:
+                        # articles 테이블에는 preprocessing_status 컬럼이 없으므로 업데이트 불필요
                         success_count += 1
                 except Exception as e:
                     print(f"⚠️ 기사 저장 실패 (ID: {article.get('article_id', 'unknown')}): {e}")

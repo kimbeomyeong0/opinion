@@ -131,7 +131,7 @@ class SupabaseManager:
         try:
             # merged_content가 있는 기사만 조회
             query = self.client.table('articles_cleaned')\
-                .select('id, article_id, merged_content, title_cleaned, lead_paragraph')\
+                .select('id, article_id, merged_content')\
                 .not_.is_('merged_content', 'null')\
                 .neq('merged_content', '')\
                 .order('created_at', desc=True)

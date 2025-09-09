@@ -8,11 +8,10 @@
 
 import sys
 import os
-from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 
 # 프로젝트 루트를 Python 경로에 추가
-sys.path.append('/Users/kimbeomyeong/opinion')
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.supabase_manager import SupabaseManager
 from preprocessing.modules.text_processor import TextProcessor
@@ -30,25 +29,22 @@ def main():
     # 텍스트 프로세서 초기화
     text_processor = TextProcessor()
     
-    # KST 9월 8일 → UTC 변환
-    kst_yesterday = datetime(2025, 9, 8)
-    utc_start = kst_yesterday.replace(hour=0, minute=0, second=0, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
-    utc_end = kst_yesterday.replace(hour=23, minute=59, second=59, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
-    
-    utc_start_str = utc_start.strftime('%Y-%m-%dT%H:%M:%SZ')
-    utc_end_str = utc_end.strftime('%Y-%m-%dT%H:%M:%SZ')
-    
-    print(f"📅 날짜 필터 적용: {utc_start_str} ~ {utc_end_str} (KST 9월 8일)")
-    
     try:
-        # articles_cleaned에서 기사 조회 (title_cleaned가 없는 기사들)
+        # articles 테이블에서 articles_cleaned에 없는 기사들 조회
         print("📡 기사 데이터 조회 중...")
-        result = supabase_manager.client.table('articles_cleaned').select(
-            'id, title, content, url, published_at'
-        ).is_('title_cleaned', 'null')\
-        .gte('published_at', utc_start_str)\
-        .lt('published_at', utc_end_str)\
-        .execute()
+        
+        # 먼저 이미 전처리된 기사 ID들을 가져옴
+        processed_result = supabase_manager.client.table('articles_cleaned').select('article_id').execute()
+        processed_ids = set(item['article_id'] for item in processed_result.data)
+        
+        # articles 테이블에서 모든 기사 조회 (날짜 필터 제거)
+        result = supabase_manager.client.table('articles').select(
+            'id, title, content, url, published_at, media_id'
+        ).execute()
+        
+        # 이미 전처리된 기사 제외
+        if result.data:
+            result.data = [article for article in result.data if article['id'] not in processed_ids]
         
         articles = result.data if result else []
         print(f"✅ {len(articles)}개 기사 조회 완료")
@@ -102,14 +98,21 @@ def main():
                 content_result = text_processor.normalize_text(cleaned_content)
                 final_content = content_result.normalized_text
                 
-                # 데이터베이스 업데이트
-                update_result = supabase_manager.client.table('articles_cleaned').update({
-                    'title_cleaned': final_title,
-                    'content_cleaned': final_content,
-                    'updated_at': 'now()'
-                }).eq('id', article_id).execute()
+                # articles_cleaned 테이블에 새 레코드 생성 (제목 + 리드만)
+                data = {
+                    'article_id': article_id,
+                    'merged_content': f"제목: {final_title}\n\n리드: {final_content}",
+                    'media_id': article.get('media_id'),
+                    'published_at': article.get('published_at')
+                }
                 
-                if update_result.data:
+                insert_result = supabase_manager.client.table('articles_cleaned').insert(data).execute()
+                
+                if insert_result.data:
+                    # articles 테이블에는 preprocessing_status 컬럼이 없으므로 업데이트 불필요
+                    pass
+                
+                if insert_result.data:
                     processed_count += 1
                     if processed_count % 100 == 0:
                         print(f"✅ {processed_count}개 기사 처리 완료...")

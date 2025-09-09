@@ -25,8 +25,22 @@ class TextProcessor:
     
     def __init__(self):
         """초기화"""
-        # 언론사별 패턴 정의 (간소화)
-        self.media_patterns = {
+        # 언론사별 패턴 정의 (동적으로 로드 가능하도록 개선)
+        self.media_patterns = self._load_media_patterns()
+        
+        # 공통 패턴 정의
+        self.common_patterns = [
+            r'\[.*?\]',  # 대괄호 내용
+            r'\(.*?\)',  # 괄호 내용
+            r'【.*?】',   # 특수 괄호
+            r'<.*?>',    # HTML 태그
+            r'&[a-zA-Z0-9#]+;',  # HTML 엔티티
+            r'[^\w\s가-힣]',  # 특수문자 (한글, 영문, 숫자, 공백 제외)
+        ]
+    
+    def _load_media_patterns(self) -> Dict[str, List[str]]:
+        """언론사별 패턴 동적 로드"""
+        return {
             'chosun': [
                 r'\[조선일보\]', r'조선일보', r'\[조선\]'
             ],
@@ -55,16 +69,6 @@ class TextProcessor:
                 r'\[뉴스원\]', r'뉴스원', r'\[뉴스1\]'
             ]
         }
-        
-        # 공통 패턴 정의
-        self.common_patterns = [
-            r'\[.*?\]',  # 대괄호 내용
-            r'\(.*?\)',  # 괄호 내용
-            r'【.*?】',   # 특수 괄호
-            r'<.*?>',    # HTML 태그
-            r'&[a-zA-Z0-9#]+;',  # HTML 엔티티
-            r'[^\w\s가-힣]',  # 특수문자 (한글, 영문, 숫자, 공백 제외)
-        ]
     
     def clean_title(self, title: str, media_outlet: str = 'unknown') -> tuple:
         """제목 정제"""
