@@ -1,30 +1,52 @@
-/* 미니멀 블로그 반응형 스타일 */
+/* Medium 스타일 반응형 디자인 */
 
 /* 태블릿 */
 @media (max-width: 768px) {
     .container {
-        padding: 0 var(--spacing-sm);
+        padding: 0 var(--spacing-md);
     }
     
     .header {
-        padding: var(--spacing-md) 0;
-        margin-bottom: var(--spacing-lg);
+        padding: var(--spacing-xl) 0 var(--spacing-lg);
+        margin-bottom: var(--spacing-2xl);
     }
     
     .brand-title {
-        font-size: var(--font-size-lg);
+        font-size: var(--font-size-2xl);
     }
     
-    .intro {
-        margin-bottom: var(--spacing-lg);
-    }
-    
-    .intro-text {
+    .brand-subtitle {
         font-size: var(--font-size-base);
     }
     
-    .post-title {
+    .nav {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-sm);
+    }
+    
+    .nav-meta {
+        margin-top: 0;
+    }
+    
+    .intro {
+        margin-bottom: var(--spacing-2xl);
+    }
+    
+    .intro-stats {
+        gap: var(--spacing-xl);
+    }
+    
+    .stat-number {
         font-size: var(--font-size-xl);
+    }
+    
+    .post-title {
+        font-size: var(--font-size-2xl);
+    }
+    
+    .post-subtitle {
+        font-size: var(--font-size-lg);
     }
     
     .views-grid {
@@ -35,90 +57,104 @@
 /* 모바일 */
 @media (max-width: 480px) {
     :root {
-        --spacing-xs: 0.25rem;
-        --spacing-sm: 0.75rem;
-        --spacing-md: 1rem;
-        --spacing-lg: 1.5rem;
-        --spacing-xl: 2rem;
+        --spacing-xs: 0.125rem;
+        --spacing-sm: 0.25rem;
+        --spacing-md: 0.75rem;
+        --spacing-lg: 1rem;
+        --spacing-xl: 1.5rem;
+        --spacing-2xl: 2rem;
+        --spacing-3xl: 2.5rem;
     }
     
     .container {
-        padding: 0 var(--spacing-sm);
+        padding: 0 var(--spacing-md);
     }
     
-    .nav {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--spacing-xs);
+    .header {
+        padding: var(--spacing-lg) 0;
+        margin-bottom: var(--spacing-xl);
     }
     
     .brand-title {
-        font-size: var(--font-size-base);
+        font-size: var(--font-size-xl);
+        margin-bottom: var(--spacing-xs);
+    }
+    
+    .brand-subtitle {
+        font-size: var(--font-size-sm);
+    }
+    
+    .nav {
+        gap: var(--spacing-xs);
     }
     
     .nav-meta {
-        font-size: 0.75rem;
+        font-size: var(--font-size-xs);
     }
     
-    .intro-text {
-        font-size: var(--font-size-sm);
+    .intro {
+        margin-bottom: var(--spacing-xl);
+        padding-bottom: var(--spacing-lg);
     }
     
     .intro-stats {
         flex-direction: column;
         align-items: center;
-        gap: var(--spacing-sm);
+        gap: var(--spacing-lg);
     }
     
-    .stat {
-        font-size: 0.75rem;
-        padding: 0.25rem 0.5rem;
-    }
-    
-    .post-title {
+    .stat-number {
         font-size: var(--font-size-lg);
     }
     
+    .stat-label {
+        font-size: var(--font-size-xs);
+    }
+    
+    .post-title {
+        font-size: var(--font-size-xl);
+    }
+    
     .post-subtitle {
-        font-size: var(--font-size-sm);
+        font-size: var(--font-size-base);
     }
     
     .post-meta {
         flex-direction: column;
         align-items: flex-start;
-        gap: 0.25rem;
+        gap: var(--spacing-xs);
     }
     
     .post-summary {
-        padding: var(--spacing-sm);
+        padding: var(--spacing-md);
     }
     
     .post-summary p {
-        font-size: var(--font-size-sm);
-    }
-    
-    .views-title {
         font-size: var(--font-size-base);
     }
     
+    .views-title {
+        font-size: var(--font-size-lg);
+    }
+    
     .view-header {
-        padding: var(--spacing-sm);
+        padding: var(--spacing-md);
         flex-direction: column;
         align-items: flex-start;
         gap: var(--spacing-xs);
     }
     
     .view-title {
-        font-size: var(--font-size-sm);
+        font-size: var(--font-size-base);
     }
     
     .view-count {
-        font-size: 0.75rem;
-        padding: 1px 6px;
+        font-size: var(--font-size-xs);
+        padding: 2px 6px;
     }
     
     .view-content {
-        padding: var(--spacing-sm);
+        padding: var(--spacing-md);
     }
     
     .view-content p {
@@ -126,29 +162,66 @@
     }
 }
 
+/* 대형 화면 */
+@media (min-width: 1200px) {
+    .container {
+        max-width: 720px;
+    }
+    
+    .views-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* 초대형 화면 */
+@media (min-width: 1400px) {
+    .container {
+        max-width: 760px;
+    }
+}
+
 /* 다크 모드 */
 @media (prefers-color-scheme: dark) {
     :root {
         --primary: #fff;
-        --secondary: #ccc;
-        --muted: #888;
-        --border: #333;
+        --secondary: #b3b3b3;
+        --muted: #808080;
+        --border: #404040;
         --background: #000;
-        --text: #e5e5e5;
-        --accent: #4dabf7;
-        --accent-light: #1a1a1a;
+        --text: #fff;
+        --accent: #4ade80;
+        --accent-light: #0f1b0f;
+        --highlight: #1a1a1a;
     }
     
     .post-summary {
-        background: #111;
+        background: var(--highlight);
+        border-left-color: var(--accent);
     }
     
     .view-header {
-        background: #111;
+        background: var(--background);
     }
     
     .view-count {
-        background: #000;
+        background: var(--highlight);
+    }
+}
+
+/* 고대비 모드 */
+@media (prefers-contrast: high) {
+    :root {
+        --border: #000;
+        --muted: #000;
+        --secondary: #000;
+    }
+    
+    .view-card {
+        border-width: 2px;
+    }
+    
+    .view-card:hover {
+        border-width: 3px;
     }
 }
 
@@ -156,16 +229,24 @@
 @media print {
     .header {
         border-bottom: 2px solid #000;
+        page-break-after: avoid;
+    }
+    
+    .intro {
+        page-break-after: avoid;
     }
     
     .post {
         break-inside: avoid;
         page-break-inside: avoid;
+        margin-bottom: 2rem;
     }
     
     .view-card {
         break-inside: avoid;
         page-break-inside: avoid;
+        border: 1px solid #000;
+        margin-bottom: 1rem;
     }
     
     .footer {
@@ -174,5 +255,30 @@
     
     .intro-stats {
         display: none;
+    }
+    
+    .view-card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+}
+
+/* 접근성 개선 */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    
+    html {
+        scroll-behavior: auto;
+    }
+}
+
+/* 고해상도 디스플레이 */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .view-card:hover {
+        box-shadow: 0 2px 8px rgba(26, 137, 23, 0.15);
     }
 }
