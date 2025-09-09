@@ -18,12 +18,13 @@ OPENAI_MODEL = "gpt-4o-mini"
 UMAP_N_COMPONENTS = 2
 UMAP_N_NEIGHBORS = 15  # 적절한 값으로 조정
 UMAP_MIN_DIST = 0.3  # 적절한 값으로 조정
-HDBSCAN_MIN_CLUSTER_SIZE = 10  # 46개 클러스터 생성
-HDBSCAN_MIN_SAMPLES = 3  # 46개 클러스터 생성
+HDBSCAN_MIN_CLUSTER_SIZE = 30  # 더 큰 클러스터로 통합
+HDBSCAN_MIN_SAMPLES = 15  # 더 큰 클러스터로 통합
 
 # 이슈 생성 설정
-MAX_ISSUES = 10  # source 기준 10위까지만 저장
+MAX_ISSUES = 5  # source 기준 5위까지만 저장
 TOP_ISSUES_FULL_CONTENT = 5  # 5위까지는 모든 컬럼 생성
+MAX_ARTICLES_PER_CLUSTER = 30  # 클러스터당 최대 기사 수 (크기 제한)
 # MAX_ARTICLES_FOR_LLM 제거 - 모든 기사 사용
 # MAX_TITLES_FOR_LLM 제거 - 모든 기사 제목 사용
 
@@ -38,6 +39,10 @@ MEDIA_BIAS_MAPPING = {
 PAGINATION_SIZE = 100
 BATCH_SIZE = 100
 
+# LLM 배치 처리 설정
+SUMMARY_BATCH_SIZE = 15  # 요약 생성 배치 크기 (최적화)
+VIEW_BATCH_SIZE = 8      # 관점 생성 배치 크기 (최적화)
+
 def get_config() -> Dict[str, Any]:
     """설정 딕셔너리 반환"""
     return {
@@ -50,7 +55,10 @@ def get_config() -> Dict[str, Any]:
         "hdbscan_min_samples": HDBSCAN_MIN_SAMPLES,
         "max_issues": MAX_ISSUES,
         "top_issues_full_content": TOP_ISSUES_FULL_CONTENT,
+        "max_articles_per_cluster": MAX_ARTICLES_PER_CLUSTER,
         "media_bias_mapping": MEDIA_BIAS_MAPPING,
         "pagination_size": PAGINATION_SIZE,
-        "batch_size": BATCH_SIZE
+        "batch_size": BATCH_SIZE,
+        "summary_batch_size": SUMMARY_BATCH_SIZE,
+        "view_batch_size": VIEW_BATCH_SIZE
     }
