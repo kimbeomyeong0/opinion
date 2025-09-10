@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-정치 이슈 HTML 보고서 생성기 (완전 리팩토링 버전)
+정치 이슈 HTML 보고서 생성기 (리팩토링 버전)
 Substack 스타일의 미니멀 디자인으로 모바일 최적화된 보고서 생성
 """
 
@@ -16,7 +16,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from utils.supabase_manager import SupabaseManager
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 console = Console()
 
@@ -34,6 +33,7 @@ class ReportGenerator:
     }
     
     def __init__(self, animation_type: str = "wave"):
+        """초기화"""
         self.supabase_manager = SupabaseManager()
         self.reports_dir = Path(__file__).parent / "reports"
         self.reports_dir.mkdir(exist_ok=True)
@@ -53,168 +53,38 @@ class ReportGenerator:
             else:
                 filename = f"{base_name}({counter}).html"
             
-            filepath = self.reports_dir / filename
-            if not filepath.exists():
+            if not (self.reports_dir / filename).exists():
                 return filename
-            
             counter += 1
     
-    def get_real_issues(self, count: int = None) -> List[Dict[str, Any]]:
-        """실제 데이터베이스에서 이슈 데이터 조회"""
-        if not self.supabase_manager.client:
-            console.print("❌ 데이터베이스 연결 실패")
-            return []
-        
-        try:
-            # issues 테이블에서 이슈 조회
-            query = self.supabase_manager.client.table('issues').select(
-                'id, title, subtitle, background, summary, left_view, center_view, right_view, created_at'
-            )
-            
-            if count is not None:
-                query = query.limit(count)
-            
-            result = query.execute()
-            
-            if not result.data:
-                console.print("❌ 이슈 데이터가 없습니다.")
-                return []
-            
-            issues = []
-            for issue in result.data:
-                # 각 이슈별로 관련 기사 수 조회
-                article_stats = self._get_article_stats(issue['id'])
-                
-                # 이슈별 주요 언론사 정보 조회
-                primary_sources = self._get_primary_sources(issue['id'])
-                
-                issue_data = {
-                    'id': issue['id'],
-                    'title': issue['title'],
-                    'subtitle': issue['subtitle'],
-                    'background': issue['background'],
-                    'summary': issue['summary'],
-                    'left_view': issue['left_view'],
-                    'center_view': issue['center_view'],
-                    'right_view': issue['right_view'],
-                    'created_at': issue['created_at'],
-                    'total_articles': article_stats['total'],
-                    'left_articles': article_stats['left'],
-                    'center_articles': article_stats['center'],
-                    'right_articles': article_stats['right'],
-                    'primary_sources': primary_sources
-                }
-                issues.append(issue_data)
-            
-            console.print(f"✅ {len(issues)}개 이슈 데이터 조회 완료")
-            return issues
-            
-        except Exception as e:
-            console.print(f"❌ 이슈 데이터 조회 실패: {e}")
-            return []
-    
     def _get_article_stats(self, issue_id: str) -> Dict[str, int]:
-        """이슈별 기사 통계 조회 (올바른 스키마 사용)"""
-        try:
-            # issue_articles 테이블을 통해 articles와 media_outlets 조인
-            result = self.supabase_manager.client.table('issue_articles').select(
-                'article_id, articles!inner(media_id, media_outlets!inner(name, bias))'
-            ).eq('issue_id', issue_id).execute()
-            
-            if not result.data:
-                return {'total': 0, 'left': 0, 'center': 0, 'right': 0}
-            
-            # bias별 기사 수 계산
-            bias_counts = {'left': 0, 'center': 0, 'right': 0}
-            for item in result.data:
-                # articles 정보에서 media_outlets 추출
-                article = item.get('articles', {})
-                media_outlet = article.get('media_outlets', {})
-                bias = media_outlet.get('bias', 'center')
-                
-                if bias in bias_counts:
-                    bias_counts[bias] += 1
-            
-            return {
-                'total': len(result.data),
-                'left': bias_counts['left'],
-                'center': bias_counts['center'],
-                'right': bias_counts['right']
-            }
-            
-        except Exception as e:
-            console.print(f"❌ 기사 통계 조회 실패: {e}")
-            return {'total': 0, 'left': 0, 'center': 0, 'right': 0}
-    
-    def _get_primary_sources(self, issue_id: str) -> List[str]:
-        """이슈별 주요 언론사 조회 (올바른 스키마 사용)"""
+        """이슈별 기사 통계 조회"""
         try:
             result = self.supabase_manager.client.table('issue_articles').select(
                 'article_id, articles!inner(media_id, media_outlets!inner(name, bias))'
             ).eq('issue_id', issue_id).execute()
             
             if not result.data:
-                return []
+                return {"total": 0, "left": 0, "center": 0, "right": 0}
             
-            # 언론사별 기사 수 계산
-            outlet_counts = {}
+            stats = {"total": len(result.data), "left": 0, "center": 0, "right": 0}
+            
             for item in result.data:
-                article = item.get('articles', {})
-                media_outlet = article.get('media_outlets', {})
-                outlet_name = media_outlet.get('name', '')
-                if outlet_name:
-                    outlet_counts[outlet_name] = outlet_counts.get(outlet_name, 0) + 1
+                bias = item['articles']['media_outlets']['bias']
+                if bias in stats:
+                    stats[bias] += 1
             
-            # 기사 수가 많은 순으로 정렬하여 상위 3개 반환
-            sorted_outlets = sorted(outlet_counts.items(), key=lambda x: x[1], reverse=True)
-            return [outlet for outlet, count in sorted_outlets[:3]]
+            return stats
             
         except Exception as e:
-            console.print(f"❌ 주요 언론사 조회 실패: {e}")
-            return []
+            console.print(f"❌ 기사 통계 조회 실패: {str(e)}")
+            return {"total": 0, "left": 0, "center": 0, "right": 0}
     
-    def generate_html(self, issues: List[Dict[str, Any]]) -> str:
-        """HTML 보고서 생성 (인라인 CSS 포함)"""
-        current_time = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
-        
-        # CSS를 인라인으로 포함하여 로딩 문제 해결
-        css_content = self._get_css_content()
-        
-        html = f"""<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>정치 이슈 분석 보고서</title>
-    <style>
-{css_content}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>정치 이슈 분석 보고서</h1>
-        <div class="subtitle">Political Insights Report</div>
-        <div class="meta">생성일시: {current_time}</div>
-    </div>
-"""
-        
-        for issue in issues:
-            html += self._generate_issue_card(issue)
-        
-        html += """
-</body>
-</html>
-"""
-        return html
-    
-    def _get_css_content(self) -> str:
-        """CSS 내용을 문자열로 반환"""
-        return self._get_default_css()
     
     def _get_default_css(self) -> str:
-        """기본 CSS 반환"""
+        """기본 CSS 스타일 반환"""
         return """
-/* 기본 스타일 */
+/* 전체 레이아웃 */
 * {
     margin: 0;
     padding: 0;
@@ -227,10 +97,11 @@ body {
     color: #1a1a1a;
     background: #ffffff;
     padding: 20px;
-    max-width: 600px;
+    max-width: 800px;
     margin: 0 auto;
 }
 
+/* 헤더 */
 .header {
     text-align: center;
     margin-bottom: 40px;
@@ -238,49 +109,64 @@ body {
     border-bottom: 2px solid #e9ecef;
 }
 
-.title {
+.header h1 {
     font-size: 28px;
     font-weight: 700;
     color: #1a1a1a;
-    line-height: 1.3;
+    margin-bottom: 8px;
 }
 
-.subtitle {
-    font-size: 18px;
-    font-weight: 500;
-    color: #333333;
-    margin-bottom: 24px;
-    line-height: 1.4;
-}
-
-.meta {
-    font-size: 14px;
+.header .subtitle {
+    font-size: 16px;
     color: #666666;
-    margin-top: 8px;
+    font-weight: 400;
 }
 
+/* 이슈 카드 */
 .issue-card {
     background: #ffffff;
     border: 1px solid #e9ecef;
     border-radius: 12px;
     padding: 24px;
     margin-bottom: 32px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    transition: box-shadow 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .issue-card:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* 이슈 헤더 */
+.issue-header {
+    margin-bottom: 20px;
 }
 
 .created-at {
     font-size: 12px;
     color: #999999;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
+.title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.subtitle {
+    font-size: 16px;
+    color: #666666;
+    font-weight: 400;
+    line-height: 1.5;
+}
+
+/* 섹션 */
 .section {
     margin-bottom: 24px;
 }
@@ -288,23 +174,24 @@ body {
 .section-label {
     font-size: 14px;
     font-weight: 600;
-    color: #666666;
+    color: #1a1a1a;
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 .section-content {
-    font-size: 16px;
-    color: #1a1a1a;
+    font-size: 14px;
+    color: #666666;
     line-height: 1.6;
 }
 
+/* 소스 통계 */
 .source-stats {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
     padding: 16px;
     background: #f8f9fa;
     border-radius: 6px;
@@ -312,33 +199,37 @@ body {
 
 .source-item {
     text-align: center;
+    flex: 1;
+    min-width: 60px;
 }
 
 .source-number {
     font-size: 20px;
     font-weight: 700;
     color: #1a1a1a;
+    margin-bottom: 4px;
 }
 
 .source-label {
     font-size: 12px;
     color: #666666;
-    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
+/* 게이지바 */
 .gauge-container {
-    margin-bottom: 32px;
+    margin-bottom: 24px;
     padding: 20px;
     background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
     border-radius: 12px;
     border: 1px solid #e9ecef;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 .gauge-title {
     font-size: 16px;
     font-weight: 600;
-    color: #2c3e50;
+    color: #1a1a1a;
     margin-bottom: 16px;
     text-align: center;
 }
@@ -348,35 +239,34 @@ body {
     background: linear-gradient(90deg, #f1f3f4 0%, #e8eaed 100%);
     border-radius: 16px;
     overflow: hidden;
-    margin-bottom: 12px;
     position: relative;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-    border: 1px solid #dadce0;
+    margin-bottom: 12px;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .gauge-fill {
     height: 100%;
     display: flex;
-    transition: all 0.8s ease-in-out;
-    animation: fillGauge 1.5s ease-out;
+    border-radius: 16px;
+    overflow: hidden;
 }
 
 .gauge-left {
     background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
-    box-shadow: 0 2px 4px rgba(25, 118, 210, 0.3);
     position: relative;
+    box-shadow: 0 2px 4px rgba(25, 118, 210, 0.3);
 }
 
 .gauge-center {
     background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
-    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.3);
     position: relative;
+    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.3);
 }
 
 .gauge-right {
     background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
     position: relative;
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
 }
 
 .gauge-percentage {
@@ -384,26 +274,28 @@ body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
+    color: white;
+    font-weight: 600;
     font-size: 12px;
-    font-weight: 700;
-    color: #ffffff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-    z-index: 10;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    z-index: 2;
 }
 
-@keyframes fillGauge {
-    0% { width: 0%; }
-    100% { width: var(--target-width); }
+/* 애니메이션 */
+@keyframes shimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmerMove {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
 }
 
 @keyframes wave {
     0%, 100% { transform: scaleY(1); }
     50% { transform: scaleY(1.1); }
-}
-
-@keyframes waveMove {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
 }
 
 @keyframes gradientFlow {
@@ -413,40 +305,28 @@ body {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(1.05); }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
 @keyframes sparkle {
-    0%, 100% { opacity: 0; transform: translateY(-50%) scale(0.5); }
-    50% { opacity: 1; transform: translateY(-50%) scale(1.2); }
+    0%, 100% { box-shadow: 0 0 5px rgba(255, 255, 255, 0.5); }
+    50% { box-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 30px rgba(255, 255, 255, 0.6); }
 }
 
 @keyframes rotate3d {
-    0%, 100% { transform: rotateX(0deg) rotateY(0deg); }
-    25% { transform: rotateX(5deg) rotateY(5deg); }
-    50% { transform: rotateX(0deg) rotateY(10deg); }
-    75% { transform: rotateX(-5deg) rotateY(5deg); }
+    0% { transform: rotateY(0deg); }
+    50% { transform: rotateY(180deg); }
+    100% { transform: rotateY(360deg); }
 }
 
 @keyframes typewriter {
-    0% { width: 0%; }
-    100% { width: var(--target-width); }
+    0% { width: 0; }
+    100% { width: 100%; }
 }
 
-/* 애니메이션 클래스들 */
-.gauge-wave .gauge-left { animation: wave 4s ease-in-out infinite; }
-.gauge-wave .gauge-center { animation: wave 4s ease-in-out infinite 0.5s; }
-.gauge-wave .gauge-right { animation: wave 4s ease-in-out infinite 1s; }
-
-.gauge-wave .gauge-left::after,
-.gauge-wave .gauge-center::after,
-.gauge-wave .gauge-right::after {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
-    animation: waveMove 3s ease-in-out infinite;
+.gauge-wave .gauge-fill {
+    animation: wave 2s ease-in-out infinite;
 }
 
 .gauge-flow .gauge-left {
@@ -458,52 +338,31 @@ body {
 .gauge-flow .gauge-center {
     background: linear-gradient(45deg, #6c757d, #adb5bd, #6c757d, #5a6268);
     background-size: 400% 400%;
-    animation: gradientFlow 3s ease infinite 0.5s;
+    animation: gradientFlow 3s ease infinite;
 }
 
 .gauge-flow .gauge-right {
     background: linear-gradient(45deg, #dc3545, #ff6b6b, #dc3545, #c82333);
     background-size: 400% 400%;
-    animation: gradientFlow 3s ease infinite 1s;
+    animation: gradientFlow 3s ease infinite;
 }
 
-.gauge-pulse .gauge-left { animation: pulse 2s ease-in-out infinite; }
-.gauge-pulse .gauge-center { animation: pulse 2s ease-in-out infinite 0.3s; }
-.gauge-pulse .gauge-right { animation: pulse 2s ease-in-out infinite 0.6s; }
+.gauge-pulse .gauge-fill {
+    animation: pulse 2s ease-in-out infinite;
+}
 
-.gauge-sparkle .gauge-left::before,
-.gauge-sparkle .gauge-center::before,
-.gauge-sparkle .gauge-right::before {
-    content: '✨';
-    position: absolute;
-    top: 50%; left: 20%;
-    transform: translateY(-50%);
-    font-size: 12px;
+.gauge-sparkle .gauge-fill {
     animation: sparkle 2s ease-in-out infinite;
 }
 
-.gauge-sparkle .gauge-center::before { left: 50%; animation-delay: 0.5s; }
-.gauge-sparkle .gauge-right::before { left: 80%; animation-delay: 1s; }
-
-.gauge-3d .gauge-bar {
+.gauge-3d .gauge-fill {
+    animation: rotate3d 4s linear infinite;
     transform-style: preserve-3d;
-    animation: rotate3d 6s ease-in-out infinite;
 }
 
-.gauge-3d .gauge-fill { transform-style: preserve-3d; }
-
-.gauge-typewriter .gauge-left { animation: typewriter 2s steps(20) infinite; }
-.gauge-typewriter .gauge-center { animation: typewriter 2s steps(20) infinite 0.5s; }
-.gauge-typewriter .gauge-right { animation: typewriter 2s steps(20) infinite 1s; }
-
-/* 호버 효과 */
-.gauge-container:hover .gauge-bar {
-    transform: scale(1.02);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-}
-
-.gauge-container:hover .gauge-fill {
-    transform: scale(1.05);
+.gauge-typewriter .gauge-fill {
+    animation: typewriter 3s ease-in-out infinite;
+    overflow: hidden;
 }
 
 /* 뷰 섹션 */
@@ -530,8 +389,6 @@ body {
 .view-title.center {
     background-color: rgba(108, 117, 125, 0.08);
     color: #6c757d;
-    padding: 6px 12px;
-    border-radius: 20px;
 }
 
 .view-title.right {
@@ -546,40 +403,115 @@ body {
 }
 
 /* 기타 유틸리티 */
-.background-highlight {
-    background: linear-gradient(120deg, #c8e6c9 0%, #c8e6c9 100%);
-    background-size: 100% 0.4em;
-    background-repeat: no-repeat;
-    background-position: 0 85%;
-    padding: 0 3px;
-    font-weight: 500;
-}
-
 .no-content {
     color: #999999;
     font-style: italic;
     font-size: 14px;
 }
+
+.background-highlight {
+    background-color: rgba(255, 245, 157, 0.6);
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-weight: 500;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+    body {
+        padding: 16px;
+    }
+    
+    .issue-card {
+        padding: 20px;
+        margin-bottom: 24px;
+    }
+    
+    .title {
+        font-size: 18px;
+    }
+    
+    .subtitle {
+        font-size: 15px;
+    }
+    
+    .source-stats {
+        gap: 12px;
+    }
+    
+    .gauge-container {
+        padding: 16px;
+    }
+}
 """
     
+    def _highlight_last_sentence(self, text: str) -> str:
+        """마지막 문장에 하이라이트 적용"""
+        if not text or not text.strip():
+            return text
+        
+        # 문장을 마침표로 분리하고 빈 문장 제거
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        
+        if len(sentences) <= 1:
+            return text
+        
+        # 마지막 문장을 제외한 부분
+        first_part = '. '.join(sentences[:-1])
+        last_sentence = sentences[-1]
+        
+        return f"{first_part}. <span class='background-highlight'>{last_sentence}</span>"
+    
+    def _generate_gauge_bar(self, stats: Dict[str, int]) -> str:
+        """게이지바 HTML 생성"""
+        total = stats.get('total', 0)
+        if total == 0:
+            return '<div class="gauge-bar"><div class="gauge-fill"></div></div>'
+        
+        left_pct = (stats.get('left', 0) / total) * 100
+        center_pct = (stats.get('center', 0) / total) * 100
+        right_pct = (stats.get('right', 0) / total) * 100
+        
+        gauge_html = f'<div class="gauge-bar {self.animation_type}">'
+        gauge_html += '<div class="gauge-fill">'
+        
+        if left_pct > 0:
+            gauge_html += f'<div class="gauge-left" style="width: {left_pct}%">'
+            if left_pct > 15:
+                gauge_html += f'<div class="gauge-percentage">{left_pct:.0f}%</div>'
+            gauge_html += '</div>'
+        
+        if center_pct > 0:
+            gauge_html += f'<div class="gauge-center" style="width: {center_pct}%">'
+            if center_pct > 15:
+                gauge_html += f'<div class="gauge-percentage">{center_pct:.0f}%</div>'
+            gauge_html += '</div>'
+        
+        if right_pct > 0:
+            gauge_html += f'<div class="gauge-right" style="width: {right_pct}%">'
+            if right_pct > 15:
+                gauge_html += f'<div class="gauge-percentage">{right_pct:.0f}%</div>'
+            gauge_html += '</div>'
+        
+        gauge_html += '</div></div>'
+        return gauge_html
+    
     def _generate_issue_card(self, issue: Dict[str, Any]) -> str:
-        """개별 이슈 카드 HTML 생성"""
-        # 게이지바 계산
-        total = issue['total_articles']
-        left_pct = (issue['left_articles'] / total * 100) if total > 0 else 0
-        center_pct = (issue['center_articles'] / total * 100) if total > 0 else 0
-        right_pct = (issue['right_articles'] / total * 100) if total > 0 else 0
+        """이슈 카드 HTML 생성"""
+        stats = self._get_article_stats(issue['id'])
+        gauge_bar = self._generate_gauge_bar(stats)
         
         return f"""
     <div class="issue-card">
-        <div class="created-at">{issue['created_at']}</div>
-        
-        <div class="title">{issue['title']}</div>
-        <div class="subtitle">{issue['subtitle']}</div>
+        <div class="issue-header">
+            <div class="created-at">{issue['created_at']}</div>
+            <div class="title">{issue['title']}</div>
+            <div class="subtitle">{issue['subtitle']}</div>
+        </div>
         
         <div class="section">
             <div class="section-label">배경 정보</div>
-            <div class="section-content">{issue['background']}</div>
+            <div class="section-content">{self._highlight_last_sentence(issue['background'])}</div>
         </div>
         
         <div class="source-stats">
@@ -588,34 +520,22 @@ body {
                 <div class="source-label">전체</div>
             </div>
             <div class="source-item">
-                <div class="source-number">{issue['left_articles']}</div>
-                <div class="source-label">Left</div>
+                <div class="source-number">{stats['left']}</div>
+                <div class="source-label">좌파</div>
             </div>
             <div class="source-item">
-                <div class="source-number">{issue['center_articles']}</div>
-                <div class="source-label">Center</div>
+                <div class="source-number">{stats['center']}</div>
+                <div class="source-label">중립</div>
             </div>
             <div class="source-item">
-                <div class="source-number">{issue['right_articles']}</div>
-                <div class="source-label">Right</div>
+                <div class="source-number">{stats['right']}</div>
+                <div class="source-label">우파</div>
             </div>
         </div>
         
         <div class="gauge-container">
             <div class="gauge-title">언론사 성향별 보도 비율</div>
-            <div class="gauge-bar {self.animation_type}">
-                <div class="gauge-fill" style="--target-width: 100%;">
-                    <div class="gauge-left" style="width: {left_pct}%">
-                        {f'<div class="gauge-percentage">{left_pct:.0f}%</div>' if left_pct > 5 else ''}
-                    </div>
-                    <div class="gauge-center" style="width: {center_pct}%">
-                        {f'<div class="gauge-percentage">{center_pct:.0f}%</div>' if center_pct > 5 else ''}
-                    </div>
-                    <div class="gauge-right" style="width: {right_pct}%">
-                        {f'<div class="gauge-percentage">{right_pct:.0f}%</div>' if right_pct > 5 else ''}
-                    </div>
-                </div>
-            </div>
+            {gauge_bar}
         </div>
         
         <div class="section">
@@ -647,71 +567,116 @@ body {
         return view_html
     
     def save_report(self, html: str, filename: str = None) -> str:
-        """HTML 보고서를 파일로 저장"""
+        """HTML 파일 저장"""
         if filename is None:
             filename = self.generate_filename()
         
-        filepath = self.reports_dir / filename
+        file_path = self.reports_dir / filename
         
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(html)
-            
-            console.print(f"✅ 보고서 생성 완료: {filename}")
-            console.print(f"📁 저장 위치: {filepath}")
-            return str(filepath)
-            
+            return str(file_path)
         except Exception as e:
-            console.print(f"❌ 보고서 저장 실패: {e}")
+            console.print(f"❌ 파일 저장 실패: {str(e)}")
             return None
     
-    def generate_report(self, count: int = None, animation_type: str = None) -> str:
-        """전체 보고서 생성 프로세스"""
-        if animation_type:
-            self.animation_type = self.ANIMATION_TYPES.get(animation_type, "gauge-wave")
-        
-        console.print("🚀 정치 이슈 HTML 보고서 생성기 시작")
-        
-        # 데이터베이스 연결 확인
-        if not self.supabase_manager.client:
-            console.print("❌ Supabase 클라이언트 초기화 실패")
+    def generate_html(self) -> str:
+        """전체 HTML 생성"""
+        try:
+            # 이슈 데이터 조회
+            result = self.supabase_manager.client.table('issues').select(
+                'id, title, subtitle, background, summary, left_view, center_view, right_view, created_at'
+            ).order('created_at', desc=True).execute()
+            
+            if not result.data:
+                console.print("❌ 이슈 데이터가 없습니다.")
+                return None
+            
+            console.print(f"✅ {len(result.data)}개 이슈 데이터 조회 완료")
+            
+            # 각 이슈에 통계 정보 추가
+            for issue in result.data:
+                stats = self._get_article_stats(issue['id'])
+                issue['total_articles'] = stats['total']
+            
+            # HTML 생성
+            html = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>정치 이슈 보고서</title>
+    <style>
+        {self._get_default_css()}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>정치 이슈 보고서</h1>
+        <div class="subtitle">언론사 성향별 분석</div>
+    </div>
+    
+    {''.join([self._generate_issue_card(issue) for issue in result.data])}
+    
+</body>
+</html>"""
+            
+            return html
+            
+        except Exception as e:
+            console.print(f"❌ HTML 생성 실패: {str(e)}")
             return None
-        
-        console.print("✅ Supabase 클라이언트 초기화 완료")
-        
-        # 실제 데이터베이스에서 이슈 조회
-        console.print("📊 실제 데이터베이스에서 모든 이슈를 조회하여 보고서 생성 중...")
-        issues = self.get_real_issues(count)
-        
-        if not issues:
-            console.print("❌ 이슈 데이터가 없어 보고서를 생성할 수 없습니다.")
-            return None
-        
-        # HTML 생성
-        html = self.generate_html(issues)
-        
-        # 파일 저장
-        filename = self.save_report(html)
-        
-        if filename:
+    
+    def generate_report(self) -> bool:
+        """보고서 생성 메인 함수"""
+        try:
+            console.print("🚀 정치 이슈 HTML 보고서 생성기 시작")
+            
+            # HTML 생성
+            html = self.generate_html()
+            if not html:
+                return False
+            
+            # 파일 저장
+            file_path = self.save_report(html)
+            if not file_path:
+                return False
+            
+            console.print(f"✅ 보고서 생성 완료: {Path(file_path).name}")
+            console.print(f"📁 저장 위치: {file_path}")
             console.print("🎉 보고서 생성 완료!")
-            console.print(f"📱 모바일에서 확인해보세요: {filename}")
-        
-        return filename
+            console.print(f"📱 모바일에서 확인해보세요: {file_path}")
+            
+            return True
+            
+        except Exception as e:
+            console.print(f"❌ 보고서 생성 실패: {str(e)}")
+            return False
 
 def main():
     """메인 함수"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="정치 이슈 HTML 보고서 생성기")
-    parser.add_argument("--count", type=int, help="생성할 이슈 개수 (기본값: 모든 이슈)")
-    parser.add_argument("--animation", choices=list(ReportGenerator.ANIMATION_TYPES.keys()), 
-                       default="wave", help="게이지바 애니메이션 타입")
+    parser = argparse.ArgumentParser(description='정치 이슈 HTML 보고서 생성기')
+    parser.add_argument('--animation', choices=['wave', 'flow', 'pulse', 'sparkle', '3d', 'typewriter'], 
+                       default='wave', help='게이지바 애니메이션 타입')
     
     args = parser.parse_args()
     
-    generator = ReportGenerator(animation_type=args.animation)
-    generator.generate_report(count=args.count, animation_type=args.animation)
+    try:
+        generator = ReportGenerator(animation_type=args.animation)
+        success = generator.generate_report()
+        
+        if not success:
+            sys.exit(1)
+            
+    except KeyboardInterrupt:
+        console.print("\n👋 사용자에 의해 중단되었습니다.")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"\n❌ 오류 발생: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

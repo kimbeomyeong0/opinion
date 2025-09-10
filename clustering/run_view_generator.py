@@ -135,24 +135,27 @@ class ViewGenerator:
         title = issue_info.get('title', '')
         subtitle = issue_info.get('subtitle', '')
         
-        # 기사 내용들을 800자로 제한하여 결합
+        # 기사 내용들을 800자로 제한하여 결합 (모든 기사 참고)
         articles_text = ""
-        for i, article in enumerate(articles_data[:5], 1):  # 최대 5개 기사
+        print(f"📰 {bias} 성향 기사 {len(articles_data)}개 참고 중...")
+        for i, article in enumerate(articles_data, 1):  # 모든 기사 참고
             content = article['content'][:800]  # 800자 제한
             media_name = article['media_name']
             articles_text += f"\n[기사 {i}] ({media_name})\n{content}\n"
+        
+        print(f"📝 프롬프트 길이: {len(articles_text)}자")
         
         prompt = f"""다음 이슈에 대한 {bias} 성향의 관점을 150자 이내로 작성해주세요.
 
 이슈 제목: {title}
 이슈 부제목: {subtitle}
 
-관련 기사들:
+관련 기사들 (총 {len(articles_data)}개):
 {articles_text}
 
 요구사항:
 1. {bias} 성향의 입장에서 이슈를 분석
-2. 기사 내용을 바탕으로 구체적이고 논리적인 관점 제시
+2. 위의 모든 기사 내용을 종합적으로 바탕으로 구체적이고 논리적인 관점 제시
 3. 150자 이내로 간결하게 작성
 4. 해시태그는 사용하지 마세요
 5. 문장 시작을 명확한 스탠스로 시작하세요 (예: "지지한다", "반대한다", "비판한다" 등)
