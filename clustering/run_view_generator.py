@@ -154,14 +154,8 @@ class ViewGenerator:
 1. {bias} 성향의 입장에서 이슈를 분석
 2. 기사 내용을 바탕으로 구체적이고 논리적인 관점 제시
 3. 150자 이내로 간결하게 작성
-4. 해시태그 스타일로 스탠스 3개 추가 (예: #지지 #긍정적 #협력강화)
-5. "{bias} 관점: [해시태그들] [관점 내용]" 형식으로 작성
-
-해시태그 카테고리:
-- 지지/긍정: #지지 #긍정적 #협력강화 #필요성 #옹호 #지원
-- 비판/우려: #비판 #우려 #반대 #경계 #신중 #문제제기
-- 비난/강경: #비난 #강경 #단호 #철저 #강력 #비판적
-- 중립/균형: #중립 #균형 #신중 #절충 #조화 #공정
+4. 해시태그는 사용하지 마세요
+5. 문장 시작을 명확한 스탠스로 시작하세요 (예: "지지한다", "반대한다", "중립적 입장에서", "비판한다" 등)
 
 {bias} 관점:"""
         
@@ -195,8 +189,14 @@ class ViewGenerator:
             # 응답 파싱
             content = response.choices[0].message.content.strip()
             
-            # 관점 추출
+            # 관점 추출 - 프롬프트 끝부분 제거하고 실제 내용만 추출
             view_match = re.search(rf'{bias} 관점:\s*(.+)', content)
+            if not view_match:
+                # 다른 패턴으로 시도
+                view_match = re.search(rf'{bias} 성향의 관점:\s*(.+)', content)
+            if not view_match:
+                # 전체 응답을 그대로 사용 (프롬프트가 포함되지 않은 경우)
+                view_match = re.search(r'^(.+)$', content.strip())
             
             if view_match:
                 view = view_match.group(1).strip()
@@ -370,16 +370,16 @@ class ViewGenerator:
                 issue_id = issue['id']
                 current_title = issue['title']
                 
-                # view가 이미 있는 이슈는 건너뛰기
-                issue_detail = self.supabase_manager.client.table('issues').select(
-                    'left_view, center_view, right_view'
-                ).eq('id', issue_id).execute()
-                
-                if issue_detail.data:
-                    views = issue_detail.data[0]
-                    if views.get('left_view') and views.get('center_view') and views.get('right_view'):
-                        print(f"⏭️ 이슈 {issue_id}는 이미 view가 생성됨")
-                        continue
+                # 기존 view가 있어도 덮어쓰기 (주석 처리)
+                # issue_detail = self.supabase_manager.client.table('issues').select(
+                #     'left_view, center_view, right_view'
+                # ).eq('id', issue_id).execute()
+                # 
+                # if issue_detail.data:
+                #     views = issue_detail.data[0]
+                #     if views.get('left_view') and views.get('center_view') and views.get('right_view'):
+                #         print(f"⏭️ 이슈 {issue_id}는 이미 view가 생성됨")
+                #         continue
                 
                 success = self.process_issue(issue_id)
                 if success:
