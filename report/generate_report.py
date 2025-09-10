@@ -279,6 +279,8 @@ body {
     font-size: 12px;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
     z-index: 2;
+    text-align: center;
+    width: 100%;
 }
 
 /* 애니메이션 */
@@ -363,6 +365,81 @@ body {
 .gauge-typewriter .gauge-fill {
     animation: typewriter 3s ease-in-out infinite;
     overflow: hidden;
+}
+
+/* 강조 효과 - 더 과한 애니메이션 */
+@keyframes emphasizePulse {
+    0%, 100% { 
+        transform: scaleY(1) scaleX(1); 
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+    25% { 
+        transform: scaleY(1.3) scaleX(1.05); 
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    }
+    50% { 
+        transform: scaleY(1.1) scaleX(1.1); 
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8);
+    }
+    75% { 
+        transform: scaleY(1.4) scaleX(1.02); 
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+}
+
+@keyframes emphasizeGlow {
+    0%, 100% { 
+        filter: brightness(1) saturate(1);
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    }
+    25% { 
+        filter: brightness(1.5) saturate(1.5);
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+    }
+    50% { 
+        filter: brightness(1.8) saturate(2);
+        text-shadow: 0 0 12px rgba(255, 255, 255, 1);
+    }
+    75% { 
+        filter: brightness(1.3) saturate(1.3);
+        text-shadow: 0 0 6px rgba(255, 255, 255, 0.7);
+    }
+}
+
+@keyframes emphasizeShake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-1px); }
+    20%, 40%, 60%, 80% { transform: translateX(1px); }
+}
+
+.gauge-emphasized {
+    animation: emphasizePulse 1.5s ease-in-out infinite, emphasizeShake 0.5s ease-in-out infinite;
+    border: 3px solid rgba(255, 255, 255, 1);
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.8), 0 0 30px rgba(255, 255, 255, 0.4);
+    position: relative;
+    z-index: 10;
+}
+
+.gauge-emphasized::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1));
+    border-radius: inherit;
+    animation: emphasizeGlow 1.5s ease-in-out infinite;
+    z-index: -1;
+}
+
+.gauge-emphasized .gauge-percentage {
+    font-size: 16px;
+    font-weight: 900;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    animation: emphasizeGlow 1.5s ease-in-out infinite;
+    position: relative;
+    z-index: 11;
 }
 
 /* 뷰 섹션 */
@@ -484,19 +561,19 @@ body {
         gauge_html += '<div class="gauge-fill">'
         
         if left_pct > 0:
-            gauge_html += f'<div class="gauge-left" style="width: {left_pct}%">'
+            gauge_html += f'<div class="gauge-left gauge-emphasized" style="width: {left_pct}%">'
             if left_pct > 15:
                 gauge_html += f'<div class="gauge-percentage">{left_pct:.0f}%</div>'
             gauge_html += '</div>'
         
         if center_pct > 0:
-            gauge_html += f'<div class="gauge-center" style="width: {center_pct}%">'
+            gauge_html += f'<div class="gauge-center gauge-emphasized" style="width: {center_pct}%">'
             if center_pct > 15:
                 gauge_html += f'<div class="gauge-percentage">{center_pct:.0f}%</div>'
             gauge_html += '</div>'
         
         if right_pct > 0:
-            gauge_html += f'<div class="gauge-right" style="width: {right_pct}%">'
+            gauge_html += f'<div class="gauge-right gauge-emphasized" style="width: {right_pct}%">'
             if right_pct > 15:
                 gauge_html += f'<div class="gauge-percentage">{right_pct:.0f}%</div>'
             gauge_html += '</div>'
