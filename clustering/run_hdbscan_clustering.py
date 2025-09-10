@@ -396,12 +396,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-            
-    except KeyboardInterrupt:
-        print("\n\n👋 사용자에 의해 중단되었습니다.")
-    except Exception as e:
-        print(f"\n❌ 오류 발생: {str(e)}")
-
-if __name__ == "__main__":
-    main()
