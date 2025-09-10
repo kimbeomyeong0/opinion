@@ -48,17 +48,22 @@ class ReportGenerator:
             
             counter += 1
     
-    def get_real_issues(self, count: int = 2) -> List[Dict[str, Any]]:
+    def get_real_issues(self, count: int = None) -> List[Dict[str, Any]]:
         """실제 데이터베이스에서 이슈 데이터 조회"""
         if not self.supabase_manager.client:
             console.print("❌ 데이터베이스 연결 실패")
             return []
         
         try:
-            # issues 테이블에서 이슈 조회
-            result = self.supabase_manager.client.table('issues').select(
+            # issues 테이블에서 이슈 조회 (count가 None이면 모든 이슈 조회)
+            query = self.supabase_manager.client.table('issues').select(
                 'id, title, subtitle, background, summary, left_view, center_view, right_view, created_at'
-            ).limit(count).execute()
+            )
+            
+            if count is not None:
+                query = query.limit(count)
+            
+            result = query.execute()
             
             if not result.data:
                 console.print("❌ 이슈 데이터가 없습니다.")
@@ -69,6 +74,9 @@ class ReportGenerator:
                 # 각 이슈별로 관련 기사 수 조회
                 article_stats = self._get_article_stats(issue['id'])
                 
+                # 이슈별 주요 언론사 정보 조회 (정렬용)
+                primary_sources = self._get_primary_sources(issue['id'])
+                
                 issue_data = {
                     "created_at": issue.get('created_at', '')[:16] if issue.get('created_at') else '',
                     "title": issue.get('title', ''),
@@ -78,9 +86,13 @@ class ReportGenerator:
                     "left_view": self._highlight_stance(issue.get('left_view', ''), 'left'),
                     "center_view": self._highlight_stance(issue.get('center_view', ''), 'center'),
                     "right_view": self._highlight_stance(issue.get('right_view', ''), 'right'),
+                    "primary_sources": primary_sources,
                     **article_stats
                 }
                 issues.append(issue_data)
+            
+            # source(언론사) 개수 기준으로 정렬 (많은 순)
+            issues.sort(key=lambda x: len(x['primary_sources']) if x['primary_sources'] else 0, reverse=True)
             
             return issues
             
@@ -184,6 +196,34 @@ class ReportGenerator:
         except Exception as e:
             console.print(f"❌ 기사 통계 조회 실패: {str(e)}")
             return {"total_articles": 0, "left_articles": 0, "center_articles": 0, "right_articles": 0}
+    
+    def _get_primary_sources(self, issue_id: str) -> List[str]:
+        """이슈별 주요 언론사 조회 (정렬용)"""
+        try:
+            # issue_articles 테이블에서 관련 기사들의 언론사 조회
+            result = self.supabase_manager.client.table('issue_articles').select(
+                'articles!inner(media_outlets!inner(name))'
+            ).eq('issue_id', issue_id).execute()
+            
+            if not result.data:
+                return []
+            
+            # 언론사 이름 수집
+            sources = []
+            for item in result.data:
+                if 'articles' in item and 'media_outlets' in item['articles']:
+                    source_name = item['articles']['media_outlets'].get('name', '')
+                    if source_name and source_name not in sources:
+                        sources.append(source_name)
+            
+            # 알파벳 순으로 정렬
+            sources.sort()
+            return sources
+            
+        except Exception as e:
+            console.print(f"❌ 주요 언론사 조회 실패: {str(e)}")
+            return []
+    
     
     def generate_html(self, issues: List[Dict[str, Any]]) -> str:
         """HTML 보고서 생성"""
@@ -358,10 +398,10 @@ class ReportGenerator:
             font-size: 14px;
             font-weight: 600;
             color: #666666;
-            margin-bottom: 8px;
-            padding: 8px 12px;
+            margin-bottom: 16px;
+            padding: 6px 10px;
             background: #f5f5f5;
-            border-radius: 16px;
+            border-radius: 6px;
             display: inline-block;
         }}
         
@@ -376,8 +416,8 @@ class ReportGenerator:
         }}
         
         .view-title.center {{
-            background: #f3e5f5;
-            color: #7b1fa2;
+            background: #f5f5f5;
+            color: #333333;
         }}
         
         .view-content {{
@@ -410,6 +450,7 @@ class ReportGenerator:
             font-style: italic;
             font-size: 14px;
         }}
+        
     </style>
 </head>
 <body>
@@ -511,7 +552,7 @@ class ReportGenerator:
     def generate_report(self, issues: List[Dict[str, Any]] = None) -> str:
         """보고서 생성 메인 함수"""
         if issues is None:
-            issues = self.get_real_issues(2)
+            issues = self.get_real_issues()  # 모든 이슈 조회
         
         filename = self.generate_filename()
         html = self.generate_html(issues)
@@ -528,8 +569,8 @@ def main():
     
     generator = ReportGenerator()
     
-    # 실제 데이터베이스에서 이슈 2개 조회해서 테스트 생성
-    console.print("📊 실제 데이터베이스에서 이슈 2개를 조회하여 보고서 생성 중...")
+    # 실제 데이터베이스에서 모든 이슈 조회해서 보고서 생성
+    console.print("📊 실제 데이터베이스에서 모든 이슈를 조회하여 보고서 생성 중...")
     
     with Progress(
         SpinnerColumn(),
