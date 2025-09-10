@@ -410,9 +410,16 @@ body {
 }
 
 .background-highlight {
-    background-color: rgba(255, 245, 157, 0.6);
-    padding: 1px 2px;
-    border-radius: 2px;
+    background-color: transparent;
+    padding: 0px 2px;
+    border-bottom: 5px solid rgba(76, 175, 80, 0.3);
+    font-weight: 500;
+}
+
+.view-highlight {
+    background-color: transparent;
+    padding: 0px 2px;
+    border-bottom: 5px solid rgba(76, 175, 80, 0.3);
     font-weight: 500;
 }
 
@@ -454,7 +461,8 @@ body {
         sentences = [s.strip() for s in text.split('.') if s.strip()]
         
         if len(sentences) <= 1:
-            return text
+            # 문장이 하나뿐이면 전체를 하이라이트
+            return f"<span class='background-highlight'>{text.strip()}</span>"
         
         # 마지막 문장을 제외한 부분
         first_part = '. '.join(sentences[:-1])
@@ -538,14 +546,28 @@ body {
             {gauge_bar}
         </div>
         
-        <div class="section">
-            <div class="section-label">핵심 쟁점</div>
-            <div class="section-content">{issue['summary']}</div>
-        </div>
         
         {self._generate_view_sections(issue)}
     </div>
 """
+    
+    def _highlight_first_sentence(self, text: str) -> str:
+        """첫 번째 문장에 하이라이트 적용"""
+        if not text or not text.strip():
+            return text
+        
+        # 문장을 마침표로 분리하고 빈 문장 제거
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        
+        if len(sentences) <= 1:
+            # 문장이 하나뿐이면 전체를 하이라이트
+            return f"<span class='view-highlight'>{text.strip()}</span>"
+        
+        # 첫 번째 문장을 하이라이트하고 나머지는 그대로
+        first_sentence = sentences[0]
+        rest_sentences = '. '.join(sentences[1:])
+        
+        return f"<span class='view-highlight'>{first_sentence}</span>. {rest_sentences}"
     
     def _generate_view_sections(self, issue: Dict[str, Any]) -> str:
         """뷰 섹션들 생성"""
@@ -558,10 +580,16 @@ body {
         view_html = ""
         for title, content, bias_class in views:
             if content and content.strip():
+                # 좌파와 우파 관점에만 첫 번째 문장 하이라이트 적용
+                if bias_class in ["left", "right"]:
+                    highlighted_content = self._highlight_first_sentence(content)
+                else:
+                    highlighted_content = content
+                
                 view_html += f"""
         <div class="view-section">
             <div class="view-title {bias_class}">{title}</div>
-            <div class="view-content">{content}</div>
+            <div class="view-content">{highlighted_content}</div>
         </div>
 """
         return view_html
