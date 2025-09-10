@@ -26,56 +26,57 @@ class HaniPoliticsCollector:
     def __init__(self):
         self.media_name = "한겨레"
         self.base_url = "https://www.hani.co.kr"
-        self.api_base = "https://www.hani.co.kr/_next/data/EM02RniQA0XrP2aTiUFUG/arti/politics.json"
+        self.politics_url = "https://www.hani.co.kr/arti/politics"
         self.articles = []
         self.supabase_manager = SupabaseManager()
         
     async def _get_page_articles(self, page_num: int) -> list:
         """특정 페이지에서 기사 목록 수집"""
         try:
-            url = f"{self.api_base}?section=politics&page={page_num}"
+            # 페이지 URL 구성
+            if page_num == 1:
+                url = self.politics_url
+            else:
+                url = f"{self.politics_url}?page={page_num}"
+            
             console.print(f"📡 페이지 수집: {url}")
             
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url)
-                response.raise_for_status()
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
                 
-                data = response.json()
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
                 
-                # articleList에서 기사 정보 추출
-                article_list = data.get('pageProps', {}).get('listData', {}).get('articleList', [])
-                console.print(f"🔍 API에서 {len(article_list)}개 기사 발견")
-                
-                articles = []
-                if article_list:
-                    # 각 페이지에서 최대 15개 기사 수집
-                    max_articles_per_page = 15
-                    collected_count = 0
-                    
-                    for article in article_list:
-                        if collected_count >= max_articles_per_page:
-                            break
-                            
-                        title = article.get('title', '').strip()
-                        article_url = article.get('url', '')
-                        create_date = article.get('createDate', '')
+                # 기사 목록 추출
+                articles = await page.evaluate("""
+                    () => {
+                        const articleElements = document.querySelectorAll('a[href*="/arti/politics/"][href$=".html"]');
+                        const articles = [];
                         
-                        if title and article_url:
-                            # 상대 URL을 절대 URL로 변환
-                            if article_url.startswith('/'):
-                                full_url = urljoin(self.base_url, article_url)
-                            else:
-                                full_url = article_url
+                        articleElements.forEach((link, index) => {
+                            const title = link.textContent.trim();
+                            const href = link.href;
                             
-                            articles.append({
-                                'title': title,
-                                'url': full_url,
-                                'published_at': create_date
-                            })
-                            collected_count += 1
-                            console.print(f"📰 기사 발견 [{collected_count}]: {title[:50]}...")
+                            // 제목이 있고, 실제 기사 URL인지 확인
+                            if (title && href && href.includes('/arti/politics/') && href.endsWith('.html')) {
+                                articles.push({
+                                    title: title,
+                                    url: href
+                                });
+                            }
+                        });
+                        
+                        return articles.slice(0, 20); // 페이지당 최대 20개
+                    }
+                """)
                 
-                console.print(f"📊 페이지에서 {len(articles)}개 기사 발견")
+                await browser.close()
+                
+                console.print(f"🔍 페이지에서 {len(articles)}개 기사 발견")
+                
+                for i, article in enumerate(articles, 1):
+                    console.print(f"📰 기사 발견 [{i}]: {article['title'][:50]}...")
+                
                 return articles
                 
         except Exception as e:
