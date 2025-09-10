@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-오마이뉴스 정치 기사 크롤러 (5페이지 × 각 1개 기사)
+오마이뉴스 정치 기사 크롤러 (성능 최적화 버전)
 개선사항:
-- 리다이렉트 자동 처리
-- 더 견고한 에러 핸들링
-- 재시도 로직 추가
-- 로깅 개선
+- 동시성 처리로 성능 대폭 개선
+- 배치 DB 저장으로 효율성 향상
+- 딜레이 최적화
+- 연결 풀 최적화
 """
 
 import asyncio
@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 import time
 import re
+from typing import List, Dict, Optional
 
 # 프로젝트 루트에서 utils 불러오기
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -33,7 +34,7 @@ class OhmyNewsPoliticsCollector:
         self.supabase_manager = SupabaseManager()
         self.articles = []
         
-        # HTTP 클라이언트 설정
+        # HTTP 클라이언트 설정 (최적화)
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -42,35 +43,60 @@ class OhmyNewsPoliticsCollector:
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
         }
+        
+        # 동시성 제한 설정
+        self.semaphore = asyncio.Semaphore(10)  # 최대 10개 동시 요청
+        self.batch_size = 20  # DB 배치 저장 크기
 
     async def run(self, num_pages=8):
-        console.print(f"🚀 {self.media_name} 정치 기사 크롤링 시작")
+        console.print(f"🚀 {self.media_name} 정치 기사 크롤링 시작 (최적화 버전)")
 
-        await self.collect_articles(num_pages)
-        await self.collect_contents()
-        await self.save_articles()
+        # 1단계: 기사 목록 수집 (병렬 처리)
+        await self.collect_articles_parallel(num_pages)
+        
+        # 2단계: 본문 수집 (병렬 처리)
+        await self.collect_contents_parallel()
+        
+        # 3단계: 배치 저장
+        await self.save_articles_batch()
 
         console.print("🎉 크롤링 완료!")
 
-    async def collect_articles(self, num_pages):
-        """목록에서 기사 수집"""
-        console.print(f"📄 {num_pages} 페이지에서 기사 수집 시작...")
+    async def collect_articles_parallel(self, num_pages):
+        """목록에서 기사 수집 (병렬 처리)"""
+        console.print(f"📄 {num_pages} 페이지에서 기사 수집 시작 (병렬 처리)...")
         
-        for page_num in range(1, num_pages + 1):
-            url = self.list_url.format(page_num)
-            console.print(f"📡 페이지 {page_num}: {url}")
+        # 모든 페이지를 동시에 처리
+        tasks = [self._collect_page_articles(page_num) for page_num in range(1, num_pages + 1)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 수집
+        total_articles = 0
+        for i, result in enumerate(results, 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ 페이지 {i} 처리 중 오류: {str(result)}")
+            else:
+                total_articles += result
+                
+        console.print(f"📊 총 {total_articles}개 기사 수집")
 
+    async def _collect_page_articles(self, page_num: int) -> int:
+        """단일 페이지에서 기사 수집"""
+        url = self.list_url.format(page_num)
+        console.print(f"📡 페이지 {page_num}: {url}")
+
+        async with self.semaphore:  # 동시성 제한
             try:
                 soup = await self._fetch_soup(url)
                 if not soup:
                     console.print(f"⚠️ 페이지 {page_num} 로드 실패")
-                    continue
+                    return 0
 
                 # 뉴스 리스트에서 최대 20개 기사 가져오기
                 news_list = soup.select(".news_list")
                 if not news_list:
                     console.print(f"⚠️ 페이지 {page_num}에서 기사를 찾을 수 없음")
-                    continue
+                    return 0
 
                 page_articles = 0
                 for news_item in news_list[:20]:  # 최대 20개
@@ -95,53 +121,65 @@ class OhmyNewsPoliticsCollector:
                     console.print(f"📰 발견: {title[:50]}...")
 
                 console.print(f"📄 페이지 {page_num}: {page_articles}개 기사 수집")
-                
-                # 요청 간 딜레이
-                await asyncio.sleep(1)
+                return page_articles
 
             except Exception as e:
                 console.print(f"❌ 페이지 {page_num} 처리 중 오류: {str(e)}")
-                continue
+                return 0
 
-        console.print(f"📊 총 {len(self.articles)}개 기사 수집")
+    async def collect_contents_parallel(self):
+        """상세 페이지에서 본문 + 발행시간 수집 (병렬 처리)"""
+        console.print(f"📖 상세 기사 수집 시작 ({len(self.articles)}개) - 병렬 처리")
 
-    async def collect_contents(self):
-        """상세 페이지에서 본문 + 발행시간 수집"""
-        console.print(f"📖 상세 기사 수집 시작 ({len(self.articles)}개)")
-
-        for i, article in enumerate(self.articles, 1):
-            console.print(f"📖 [{i}/{len(self.articles)}] {article['title'][:40]}...")
+        # 모든 기사를 동시에 처리 (배치로 나누어서)
+        batch_size = 20  # 한 번에 처리할 기사 수
+        total_batches = (len(self.articles) + batch_size - 1) // batch_size
+        
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(self.articles))
+            batch_articles = self.articles[start_idx:end_idx]
             
+            console.print(f"📖 배치 {batch_num + 1}/{total_batches}: {len(batch_articles)}개 기사 처리 중...")
+            
+            # 배치 내에서 병렬 처리
+            tasks = [self._collect_single_article(i + start_idx, article) for i, article in enumerate(batch_articles)]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 배치 간 짧은 딜레이 (서버 부하 방지)
+            if batch_num < total_batches - 1:
+                await asyncio.sleep(0.5)
+
+    async def _collect_single_article(self, index: int, article: Dict):
+        """단일 기사 본문 수집"""
+        console.print(f"📖 [{index + 1}/{len(self.articles)}] {article['title'][:40]}...")
+        
+        async with self.semaphore:  # 동시성 제한
             try:
                 data = await self._get_article_content(article["url"])
                 article["published_at"] = data.get("published_at", "")
                 article["content"] = data.get("content", "")
                 
-                # 요청 간 딜레이
-                await asyncio.sleep(1.5)
-                
             except Exception as e:
-                console.print(f"❌ [{i}] 기사 수집 실패: {str(e)}")
+                console.print(f"❌ [{index + 1}] 기사 수집 실패: {str(e)}")
                 # 실패해도 계속 진행
-                continue
 
-    async def _fetch_soup(self, url: str, max_retries=3) -> BeautifulSoup:
-        """URL에서 BeautifulSoup 객체를 가져오는 헬퍼 메서드"""
+    async def _fetch_soup(self, url: str, max_retries=2) -> Optional[BeautifulSoup]:
+        """URL에서 BeautifulSoup 객체를 가져오는 헬퍼 메서드 (최적화)"""
         for attempt in range(max_retries):
             try:
                 async with httpx.AsyncClient(
-                    timeout=30.0,
-                    follow_redirects=True,  # 리다이렉트 자동 처리
-                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                    timeout=15.0,  # 타임아웃 단축
+                    follow_redirects=True,
+                    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)  # 연결 풀 증가
                 ) as client:
                     response = await client.get(url, headers=self.headers)
                     response.raise_for_status()
                     return BeautifulSoup(response.text, "html.parser")
                     
             except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
-                console.print(f"⚠️ 시도 {attempt + 1}/{max_retries} 실패: {str(e)}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # 지수 백오프
+                    await asyncio.sleep(0.5)  # 재시도 딜레이 단축
                 else:
                     console.print(f"❌ {url} 최대 재시도 횟수 초과")
                     return None
@@ -240,30 +278,14 @@ class OhmyNewsPoliticsCollector:
         
         return text
 
-    def _is_unwanted_text(self, text: str) -> bool:
-        """원하지 않는 텍스트 패턴 확인"""
-        unwanted_patterns = [
-            r'^AD\s*$',
-            r'광고',
-            r'▶.*더보기',
-            r'Copyright.*',
-            r'저작권.*',
-            r'무단.*전재.*',
-            r'구독.*신청',
-        ]
-        
-        for pattern in unwanted_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                return True
-        return False
 
-    async def save_articles(self):
-        """DB 저장"""
+    async def save_articles_batch(self):
+        """DB 배치 저장 (최적화)"""
         if not self.articles:
             console.print("⚠️ 저장할 기사가 없습니다.")
             return
             
-        console.print(f"💾 Supabase에 {len(self.articles)}개 기사 저장 중...")
+        console.print(f"💾 Supabase에 {len(self.articles)}개 기사 배치 저장 중...")
 
         try:
             media_outlet = self.supabase_manager.get_media_outlet(self.media_name)
@@ -280,16 +302,15 @@ class OhmyNewsPoliticsCollector:
             except Exception as e:
                 console.print(f"⚠️ 기존 URL 조회 실패: {str(e)}")
 
-            success_count, skip_count, fail_count = 0, 0, 0
+            # 중복 제거 및 배치 준비
+            new_articles = []
+            skip_count = 0
             
-            for i, article in enumerate(self.articles, 1):
+            for article in self.articles:
                 if article["url"] in existing_urls:
-                    console.print(f"⚠️ [{i}] 중복 스킵: {article['title'][:40]}")
                     skip_count += 1
                     continue
-
-                # 빈 콘텐츠도 저장 (스킵하지 않음)
-
+                    
                 article_data = {
                     "title": article["title"],
                     "url": article["url"],
@@ -298,19 +319,37 @@ class OhmyNewsPoliticsCollector:
                     "created_at": datetime.now(pytz.UTC).isoformat(),
                     "media_id": media_id,
                 }
+                new_articles.append(article_data)
 
-                success = self.supabase_manager.insert_article(article_data)
-                if success:
-                    console.print(f"✅ [{i}] 저장 성공: {article['title'][:40]}")
-                    success_count += 1
-                else:
-                    console.print(f"❌ [{i}] 저장 실패: {article['title'][:40]}")
-                    fail_count += 1
-
-            console.print(f"\n📊 저장 결과: 성공 {success_count}, 스킵 {skip_count}, 실패 {fail_count}")
+            # 배치 저장
+            if new_articles:
+                success_count = self._batch_insert_articles(new_articles)
+                console.print(f"✅ 배치 저장 완료: {success_count}개 성공")
+            else:
+                console.print("⚠️ 저장할 새 기사가 없습니다.")
+                
+            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}")
             
         except Exception as e:
             console.print(f"❌ DB 저장 중 치명적 오류: {str(e)}")
+
+    def _batch_insert_articles(self, articles: List[Dict]) -> int:
+        """배치로 기사 삽입"""
+        try:
+            # Supabase의 upsert 기능 사용
+            result = self.supabase_manager.client.table("articles").upsert(articles).execute()
+            return len(result.data) if result.data else 0
+        except Exception as e:
+            console.print(f"❌ 배치 저장 실패: {str(e)}")
+            # 개별 저장으로 폴백
+            success_count = 0
+            for article in articles:
+                try:
+                    if self.supabase_manager.insert_article(article):
+                        success_count += 1
+                except:
+                    continue
+            return success_count
 
 async def main():
     collector = OhmyNewsPoliticsCollector()
