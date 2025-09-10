@@ -54,6 +54,10 @@ def generate_background(title, subtitle, summary):
 - 편향 없이 사실 중심
 - 간결하고 명확한 문장
 - 3문장 내외
+- 정확히 150자 이내로 작성 (절대 초과 금지)
+- 핵심 키워드만 사용하여 간결하게 작성
+- 불필요한 수식어나 부사는 최소화
+- 150자를 초과하면 다시 작성하세요
 - 최신 정보 기반
 - 참조 번호나 인용 표시 없이 깔끔하게 작성
 
@@ -65,7 +69,7 @@ def generate_background(title, subtitle, summary):
         response = perplexity_client.chat.completions.create(
             model="sonar",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=800,
+            max_tokens=200,
             temperature=0.3
         )
         
@@ -76,6 +80,10 @@ def generate_background(title, subtitle, summary):
         background = re.sub(r'\[\d+\]', '', background)
         background = re.sub(r'\[\d+,\d+\]', '', background)
         background = re.sub(r'\[\d+-\d+\]', '', background)
+        
+        # 길이 검증 (참고용)
+        if len(background) > 150:
+            print(f"⚠️  Background가 150자를 초과했습니다: {len(background)}자")
         
         return background
         

@@ -189,18 +189,20 @@ body {
 /* 소스 통계 */
 .source-stats {
     display: flex;
-    gap: 16px;
+    gap: 8px;
     margin-bottom: 24px;
-    flex-wrap: wrap;
-    padding: 16px;
+    flex-wrap: nowrap;
+    padding: 12px;
     background: #f8f9fa;
     border-radius: 6px;
+    overflow-x: auto;
 }
 
 .source-item {
     text-align: center;
     flex: 1;
-    min-width: 60px;
+    min-width: 50px;
+    flex-shrink: 0;
 }
 
 .source-number {
@@ -252,19 +254,23 @@ body {
 }
 
 .gauge-left {
-    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    background: linear-gradient(45deg, #1976d2, #1565c0, #0d47a1, #1976d2, #1565c0, #0d47a1, #1976d2);
+    background-size: 300% 300%;
     position: relative;
     box-shadow: 0 2px 4px rgba(25, 118, 210, 0.3);
 }
 
 .gauge-center {
-    background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+    background: linear-gradient(45deg, #f8f9fa, #e9ecef, #dee2e6, #adb5bd, #dee2e6, #e9ecef, #f8f9fa);
+    background-size: 300% 300%;
     position: relative;
-    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.3);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border: 1px solid #dee2e6;
 }
 
 .gauge-right {
-    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    background: linear-gradient(45deg, #dc3545, #c82333, #a71e34, #dc3545, #c82333, #a71e34, #dc3545);
+    background-size: 300% 300%;
     position: relative;
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
 }
@@ -413,11 +419,59 @@ body {
 }
 
 .gauge-emphasized {
-    animation: emphasizePulse 1.5s ease-in-out infinite, emphasizeShake 0.5s ease-in-out infinite;
-    border: 3px solid rgba(255, 255, 255, 1);
-    box-shadow: 0 0 15px rgba(255, 255, 255, 0.8), 0 0 30px rgba(255, 255, 255, 0.4);
+    animation: waveGradient 2s ease-in-out infinite;
     position: relative;
     z-index: 10;
+}
+
+@keyframes waveGradient {
+    0% {
+        background-position: 0% 50%;
+    }
+    25% {
+        background-position: 50% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    75% {
+        background-position: 50% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.gauge-left.gauge-emphasized {
+    animation-delay: 0s;
+}
+
+.gauge-center.gauge-emphasized {
+    animation-delay: 0.5s;
+}
+
+.gauge-right.gauge-emphasized {
+    animation-delay: 1s;
+}
+
+/* Summary 인용구 스타일 */
+.summary-container {
+    margin-top: 24px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-left: 4px solid #667eea;
+    border-radius: 0 8px 8px 0;
+    position: relative;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.summary-content {
+    color: #2c3e50;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.6;
+    font-style: italic;
+    position: relative;
 }
 
 .gauge-emphasized::before {
@@ -434,12 +488,16 @@ body {
 }
 
 .gauge-emphasized .gauge-percentage {
-    font-size: 16px;
-    font-weight: 900;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
-    animation: emphasizeGlow 1.5s ease-in-out infinite;
+    font-size: 14px;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     position: relative;
     z-index: 11;
+}
+
+.gauge-center .gauge-percentage {
+    color: #495057;
+    font-weight: 700;
 }
 
 /* 뷰 섹션 */
@@ -520,7 +578,20 @@ body {
     }
     
     .source-stats {
-        gap: 12px;
+        gap: 6px;
+        padding: 8px;
+    }
+    
+    .source-item {
+        min-width: 40px;
+    }
+    
+    .source-number {
+        font-size: 16px;
+    }
+    
+    .source-label {
+        font-size: 10px;
     }
     
     .gauge-container {
@@ -625,6 +696,8 @@ body {
         
         
         {self._generate_view_sections(issue)}
+        
+        {self._generate_summary_section(issue)}
     </div>
 """
     
@@ -670,6 +743,17 @@ body {
         </div>
 """
         return view_html
+    
+    def _generate_summary_section(self, issue: Dict[str, Any]) -> str:
+        """Summary 섹션 생성 (인용구 스타일)"""
+        if not issue.get('summary') or not issue['summary'].strip():
+            return ""
+        
+        return f"""
+        <div class="summary-container">
+            <div class="summary-content">{issue['summary']}</div>
+        </div>
+"""
     
     def save_report(self, html: str, filename: str = None) -> str:
         """HTML 파일 저장"""
