@@ -23,13 +23,15 @@ load_dotenv()
 
 console = Console()
 
-def generate_background(title, subtitle, summary):
+def generate_background(title, subtitle, left_view, right_view, summary):
     """
     Perplexity API를 사용하여 이슈의 background 생성
     
     Args:
         title: 이슈 제목
-        subtitle: 이슈 부제목  
+        subtitle: 이슈 부제목
+        left_view: 좌파 관점
+        right_view: 우파 관점
         summary: 이슈 요약
         
     Returns:
@@ -43,33 +45,43 @@ def generate_background(title, subtitle, summary):
         )
         
         # 프롬프트 구성
-        prompt = f"""다음 정치 이슈에 대해 객관적이고 간결한 배경을 기승전결 구조로 3문장으로 작성해주세요.
+        prompt = f"""다음 정치 이슈에 대해 20대~30대가 이해하기 쉬운 배경을 작성해주세요.
 
-구조:
-- 1문장 (기): 이슈의 기본 상황과 배경
-- 2문장 (승): 구체적인 사건과 전개 과정  
-- 3문장 (전): 현재 상황과 갈등의 핵심
+이슈 정보:
+- 제목: {title}
+- 부제목: {subtitle}
+- 좌파 관점: {left_view}
+- 우파 관점: {right_view}
+- 요약: {summary}
 
 요구사항:
-- 편향 없이 사실 중심
-- 간결하고 명확한 문장
-- 3문장 내외
-- 정확히 150자 이내로 작성 (절대 초과 금지)
-- 핵심 키워드만 사용하여 간결하게 작성
-- 불필요한 수식어나 부사는 최소화
-- 150자를 초과하면 다시 작성하세요
-- 최신 정보 기반
-- 참조 번호나 인용 표시 없이 깔끔하게 작성
+1. 200자 내외로 작성
+2. 이 이슈가 왜 논란이 되고 있는지, 무엇 때문에 싸우는지 명확히 설명
+3. 좌파와 우파가 어떤 점에서 의견이 다른지, 어떤 점에서 같은지 분석
+4. 이슈의 역사적 배경과 현재 상황을 간단히 설명
+5. 어려운 정치용어는 자연스럽게 괄호로 설명하되, "20~30대가 이해하기 쉽게" 같은 표현은 사용하지 마세요:
+   - '여야' → '여당과 야당(여야)'
+   - '특검법' → '특별 수사 제도(특검법)'
+   - '필리버스터' → '의도적으로 회의 시간 끄는 방식(필리버스터)'
+   - '체포동의안' → '구속 허가 신청(체포동의안)'
+   - '인사청문회' → '후보자 심사 회의(인사청문회)'
+   - '과반수' → '절반 이상(과반수)'
+   - '일방처리' → '한쪽이 강행(일방처리)'
+   - '합의안' → '협의 결과(합의안)'
+   - '재협상' → '다시 협의(재협상)'
+   - '결렬' → '협의 깨짐(결렬)'
+6. 편향 없이 사실 중심으로 작성
+7. 간결하고 명확한 문장으로 자연스럽게 작성
+8. 최신 정보 기반으로 작성
+9. 문장 끝에 "20~30대가 이해하기 쉽게..." 같은 설명 문장을 추가하지 마세요
 
-이슈: {title}
-부제목: {subtitle}
-요약: {summary}"""
+배경 정보:"""
 
         # API 호출
         response = perplexity_client.chat.completions.create(
             model="sonar",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            max_tokens=300,
             temperature=0.3
         )
         
@@ -124,15 +136,15 @@ def process_all_issues():
     try:
         supabase = get_supabase_client()
         
-        # background가 None이거나 빈 문자열인 이슈들 조회
-        console.print("🔍 Background가 없는 이슈들을 조회 중...")
+        # 모든 이슈 조회 (덮어쓰기 방식)
+        console.print("🔍 모든 이슈의 background를 새로 생성합니다...")
         result = supabase.client.table('issues').select(
-            'id, title, subtitle, summary, background'
-        ).or_('background.is.null,background.eq.').execute()
+            'id, title, subtitle, left_view, right_view, summary, background'
+        ).execute()
         
         if not result.data:
-            console.print("✅ 모든 이슈에 background가 이미 생성되어 있습니다.")
-            return True
+            console.print("❌ 처리할 이슈가 없습니다.")
+            return False
         
         issues = result.data
         total_issues = len(issues)
@@ -154,12 +166,14 @@ def process_all_issues():
                 issue_id = issue['id']
                 title = issue['title']
                 subtitle = issue.get('subtitle', '')
+                left_view = issue.get('left_view', '')
+                right_view = issue.get('right_view', '')
                 summary = issue.get('summary', '')
                 
                 progress.update(task, description=f"[{i}/{total_issues}] {title[:30]}...")
                 
                 # Background 생성
-                background = generate_background(title, subtitle, summary)
+                background = generate_background(title, subtitle, left_view, right_view, summary)
                 
                 if background:
                     # DB 업데이트

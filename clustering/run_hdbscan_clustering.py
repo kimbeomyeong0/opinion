@@ -245,7 +245,6 @@ class HDBSCANClusterer:
                 'title': f'이슈 {cluster_id + 1}',
                 'summary': f'{len(article_ids)}개 기사로 구성된 이슈',
                 'subtitle': f'클러스터 {cluster_id + 1}',
-                'importance': 'medium',
                 'source': source_info['total_source'],
                 'left_source': source_info['left_source'],
                 'center_source': source_info['center_source'],

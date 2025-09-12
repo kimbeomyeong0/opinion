@@ -40,11 +40,11 @@ class ReportGenerator:
         self.animation_type = self.ANIMATION_TYPES.get(animation_type, "gauge-wave")
         
     def generate_filename(self, date: datetime = None) -> str:
-        """날짜 기반 파일명 생성 (MMDD, MMDD(1) 형식)"""
+        """날짜 기반 파일명 생성 (날짜_이슈정리 형식)"""
         if date is None:
             date = datetime.now()
         
-        base_name = date.strftime("%m%d")
+        base_name = f"{date.strftime('%m%d')}_이슈정리"
         counter = 1
         
         while True:
@@ -143,7 +143,7 @@ body {
     margin-bottom: 20px;
 }
 
-.created-at {
+.meta-info {
     font-size: 12px;
     color: #999999;
     margin-bottom: 8px;
@@ -166,6 +166,91 @@ body {
     line-height: 1.5;
 }
 
+/* 좌우 관점 나란히 배치 */
+.side-views-container {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+.side-view {
+    flex: 1;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+}
+
+.side-view.left {
+    background-color: rgba(25, 118, 210, 0.05);
+    border-color: rgba(25, 118, 210, 0.2);
+}
+
+.side-view.right {
+    background-color: rgba(220, 53, 69, 0.05);
+    border-color: rgba(220, 53, 69, 0.2);
+}
+
+.side-view .view-title {
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    background: none;
+    border: none;
+    padding: 0;
+    border-radius: 0;
+}
+
+.side-view .view-content {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #333333;
+}
+
+/* 접을 수 있는 섹션 */
+.collapsible-section {
+    margin-bottom: 24px;
+}
+
+.collapsible-header {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #e9ecef;
+    transition: all 0.2s ease;
+}
+
+.collapsible-header:hover {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 8px 12px;
+}
+
+.toggle-icon {
+    font-size: 12px;
+    color: #666666;
+    transition: transform 0.2s ease;
+}
+
+.toggle-icon.rotated {
+    transform: rotate(180deg);
+}
+
+.first-sentence {
+    font-weight: 500;
+    color: #333333;
+    margin-bottom: 8px;
+}
+
+.remaining-content {
+    color: #666666;
+    line-height: 1.5;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+}
+
 /* 섹션 */
 .section {
     margin-bottom: 24px;
@@ -182,7 +267,7 @@ body {
 
 .section-content {
     font-size: 14px;
-    color: #666666;
+    color: #888888;
     line-height: 1.6;
 }
 
@@ -222,10 +307,10 @@ body {
 /* 게이지바 */
 .gauge-container {
     margin-bottom: 24px;
-    padding: 20px;
-    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-    border-radius: 12px;
-    border: 1px solid #e9ecef;
+    padding: 16px;
+    background: #fafbfc;
+    border-radius: 8px;
+    border: 1px solid #e1e5e9;
 }
 
 .gauge-title {
@@ -237,42 +322,38 @@ body {
 }
 
 .gauge-bar {
-    height: 32px;
-    background: linear-gradient(90deg, #f1f3f4 0%, #e8eaed 100%);
-    border-radius: 16px;
+    height: 24px;
+    background: #f1f3f4;
+    border-radius: 4px;
     overflow: hidden;
     position: relative;
     margin-bottom: 12px;
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .gauge-fill {
     height: 100%;
     display: flex;
-    border-radius: 16px;
+    border-radius: 4px;
     overflow: hidden;
 }
 
 .gauge-left {
-    background: linear-gradient(45deg, #1976d2, #1565c0, #0d47a1, #1976d2, #1565c0, #0d47a1, #1976d2);
-    background-size: 300% 300%;
+    background: #1976d2;
     position: relative;
-    box-shadow: 0 2px 4px rgba(25, 118, 210, 0.3);
+    box-shadow: 0 1px 2px rgba(25, 118, 210, 0.2);
 }
 
 .gauge-center {
-    background: linear-gradient(45deg, #f8f9fa, #e9ecef, #dee2e6, #adb5bd, #dee2e6, #e9ecef, #f8f9fa);
-    background-size: 300% 300%;
+    background: #9ca3af;
     position: relative;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    border: 1px solid #dee2e6;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .gauge-right {
-    background: linear-gradient(45deg, #dc3545, #c82333, #a71e34, #dc3545, #c82333, #a71e34, #dc3545);
-    background-size: 300% 300%;
+    background: #dc3545;
     position: relative;
-    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+    box-shadow: 0 1px 2px rgba(220, 53, 69, 0.2);
 }
 
 .gauge-percentage {
@@ -496,8 +577,9 @@ body {
 }
 
 .gauge-center .gauge-percentage {
-    color: #495057;
+    color: #ffffff;
     font-weight: 700;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 /* 뷰 섹션 */
@@ -517,17 +599,17 @@ body {
 }
 
 .view-title.left {
-    background-color: rgba(25, 118, 210, 0.15);
+    background-color: transparent;
     color: #1976d2;
 }
 
 .view-title.center {
-    background-color: rgba(108, 117, 125, 0.08);
+    background-color: transparent;
     color: #6c757d;
 }
 
 .view-title.right {
-    background-color: rgba(220, 53, 69, 0.15);
+    background-color: transparent;
     color: #dc3545;
 }
 
@@ -547,14 +629,12 @@ body {
 .background-highlight {
     background-color: transparent;
     padding: 0px 2px;
-    border-bottom: 5px solid rgba(76, 175, 80, 0.3);
     font-weight: 500;
 }
 
 .view-highlight {
     background-color: transparent;
     padding: 0px 2px;
-    border-bottom: 5px solid rgba(76, 175, 80, 0.3);
     font-weight: 500;
 }
 
@@ -596,6 +676,15 @@ body {
     
     .gauge-container {
         padding: 16px;
+    }
+    
+    .side-views-container {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .side-view {
+        padding: 12px;
     }
 }
 """
@@ -657,47 +746,37 @@ body {
         stats = self._get_article_stats(issue['id'])
         gauge_bar = self._generate_gauge_bar(stats)
         
+        # 날짜 포맷팅 (년, 월, 일)
+        created_date = issue['created_at'][:10] if issue['created_at'] else ""
+        if created_date:
+            try:
+                from datetime import datetime
+                date_obj = datetime.strptime(created_date, '%Y-%m-%d')
+                formatted_date = date_obj.strftime('%Y년 %m월 %d일')
+            except:
+                formatted_date = created_date
+        else:
+            formatted_date = ""
+        
         return f"""
     <div class="issue-card">
         <div class="issue-header">
-            <div class="created-at">{issue['created_at']}</div>
+            <div class="meta-info">{issue['total_articles']}개 기사 ∙ {formatted_date}</div>
             <div class="title">{issue['title']}</div>
             <div class="subtitle">{issue['subtitle']}</div>
         </div>
         
-        <div class="section">
-            <div class="section-label">배경 정보</div>
-            <div class="section-content">{self._highlight_last_sentence(issue['background'])}</div>
-        </div>
-        
-        <div class="source-stats">
-            <div class="source-item">
-                <div class="source-number">{issue['total_articles']}</div>
-                <div class="source-label">전체</div>
-            </div>
-            <div class="source-item">
-                <div class="source-number">{stats['left']}</div>
-                <div class="source-label">좌파</div>
-            </div>
-            <div class="source-item">
-                <div class="source-number">{stats['center']}</div>
-                <div class="source-label">중립</div>
-            </div>
-            <div class="source-item">
-                <div class="source-number">{stats['right']}</div>
-                <div class="source-label">우파</div>
-            </div>
-        </div>
+        {self._generate_side_views(issue)}
         
         <div class="gauge-container">
             <div class="gauge-title">언론사 성향별 보도 비율</div>
             {gauge_bar}
         </div>
         
-        
-        {self._generate_view_sections(issue)}
-        
-        {self._generate_summary_section(issue)}
+        <div class="section">
+            <div class="section-label">배경 정보</div>
+            <div class="section-content">{issue['background']}</div>
+        </div>
     </div>
 """
     
@@ -719,8 +798,139 @@ body {
         
         return f"<span class='view-highlight'>{first_sentence}</span>. {rest_sentences}"
     
+    def _get_first_sentence(self, text: str) -> str:
+        """첫 번째 문장만 추출"""
+        if not text or not text.strip():
+            return ""
+        
+        # 문장을 마침표로 분리하고 빈 문장 제거
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        
+        if len(sentences) == 0:
+            return ""
+        
+        # 첫 번째 문장만 반환 (마침표 포함)
+        first_sentence = sentences[0]
+        if not first_sentence.endswith('.'):
+            first_sentence += '.'
+        
+        return first_sentence
+
+    def _generate_side_views(self, issue: Dict[str, Any]) -> str:
+        """좌우 관점을 나란히 배치 (전체 본문)"""
+        left_content = issue.get('left_view', '').strip() if issue.get('left_view') else ''
+        right_content = issue.get('right_view', '').strip() if issue.get('right_view') else ''
+        
+        left_html = ""
+        right_html = ""
+        
+        if left_content:
+            left_html = f"""
+        <div class="side-view left">
+            <div class="view-title left">좌파 관점</div>
+            <div class="view-content">{left_content}</div>
+        </div>
+"""
+        
+        if right_content:
+            right_html = f"""
+        <div class="side-view right">
+            <div class="view-title right">우파 관점</div>
+            <div class="view-content">{right_content}</div>
+        </div>
+"""
+        
+        return f"""
+        <div class="side-views-container">
+            {left_html}
+            {right_html}
+        </div>
+"""
+    
+    def _generate_collapsible_background(self, issue: Dict[str, Any]) -> str:
+        """접을 수 있는 배경정보 섹션"""
+        background_content = issue.get('background', '').strip() if issue.get('background') else ''
+        
+        if not background_content:
+            return ""
+        
+        first_sentence = self._get_first_sentence(background_content)
+        remaining_content = self._get_remaining_content(background_content)
+        
+        return f"""
+        <div class="collapsible-section">
+            <div class="section-label collapsible-header" onclick="toggleCollapse('background-{issue['id'][:8]}')">
+                <span>배경 정보</span>
+                <span class="toggle-icon" id="toggle-background-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="first-sentence">{first_sentence}</div>
+                <div class="remaining-content" id="background-{issue['id'][:8]}" style="display: none;">
+                    {remaining_content}
+                </div>
+            </div>
+        </div>
+"""
+
+    def _generate_collapsible_center_view(self, issue: Dict[str, Any]) -> str:
+        """접을 수 있는 중립 관점 섹션"""
+        center_content = issue.get('center_view', '').strip() if issue.get('center_view') else ''
+        
+        if not center_content:
+            return ""
+        
+        first_sentence = self._get_first_sentence(center_content)
+        remaining_content = self._get_remaining_content(center_content)
+        
+        return f"""
+        <div class="collapsible-section">
+            <div class="section-label collapsible-header" onclick="toggleCollapse('center-{issue['id'][:8]}')">
+                <span>중립 관점</span>
+                <span class="toggle-icon" id="toggle-center-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="section-content">
+                <div class="first-sentence">{first_sentence}</div>
+                <div class="remaining-content" id="center-{issue['id'][:8]}" style="display: none;">
+                    {remaining_content}
+                </div>
+            </div>
+        </div>
+"""
+
+    def _get_remaining_content(self, text: str) -> str:
+        """첫 번째 문장을 제외한 나머지 내용"""
+        if not text or not text.strip():
+            return ""
+        
+        # 문장을 마침표로 분리하고 빈 문장 제거
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
+        
+        if len(sentences) <= 1:
+            return ""
+        
+        # 첫 번째 문장을 제외한 나머지 문장들
+        remaining_sentences = '. '.join(sentences[1:])
+        if not remaining_sentences.endswith('.'):
+            remaining_sentences += '.'
+        
+        return remaining_sentences
+
+    def _generate_center_view(self, issue: Dict[str, Any]) -> str:
+        """중립 관점만 따로 표시 (전체 본문)"""
+        center_content = issue.get('center_view', '').strip() if issue.get('center_view') else ''
+        
+        if not center_content:
+            return ""
+        
+        return f"""
+        <div class="section">
+            <div class="section-label">중립 관점</div>
+            <div class="section-content">{center_content}</div>
+        </div>
+"""
+    
     def _generate_view_sections(self, issue: Dict[str, Any]) -> str:
-        """뷰 섹션들 생성"""
+        """뷰 섹션들 생성 (기존 함수 유지)"""
         views = [
             ("좌파 관점", issue['left_view'], "left"),
             ("우파 관점", issue['right_view'], "right"),
@@ -745,13 +955,14 @@ body {
         return view_html
     
     def _generate_summary_section(self, issue: Dict[str, Any]) -> str:
-        """Summary 섹션 생성 (인용구 스타일)"""
+        """Summary 섹션 생성 (배경정보, 중립관점과 같은 스타일)"""
         if not issue.get('summary') or not issue['summary'].strip():
             return ""
         
         return f"""
-        <div class="summary-container">
-            <div class="summary-content">{issue['summary']}</div>
+        <div class="section">
+            <div class="section-label">언론 요약</div>
+            <div class="section-content">{issue['summary']}</div>
         </div>
 """
     
@@ -773,9 +984,9 @@ body {
     def generate_html(self) -> str:
         """전체 HTML 생성"""
         try:
-            # 이슈 데이터 조회
+            # 이슈 데이터 조회 (source 정보 포함)
             result = self.supabase_manager.client.table('issues').select(
-                'id, title, subtitle, background, summary, left_view, center_view, right_view, created_at'
+                'id, title, subtitle, background, summary, left_view, center_view, right_view, source, left_source, center_source, right_source, created_at'
             ).order('created_at', desc=True).execute()
             
             if not result.data:
@@ -788,6 +999,10 @@ body {
             for issue in result.data:
                 stats = self._get_article_stats(issue['id'])
                 issue['total_articles'] = stats['total']
+            
+            # source 순으로 정렬 (전체 기사 수 기준 내림차순)
+            result.data.sort(key=lambda x: x.get('total_articles', 0), reverse=True)
+            console.print("✅ source 순으로 정렬 완료")
             
             # HTML 생성
             html = f"""<!DOCTYPE html>
@@ -808,6 +1023,20 @@ body {
     
     {''.join([self._generate_issue_card(issue) for issue in result.data])}
     
+    <script>
+        function toggleCollapse(elementId) {{
+            const content = document.getElementById(elementId);
+            const toggleIcon = document.getElementById('toggle-' + elementId);
+            
+            if (content.style.display === 'none') {{
+                content.style.display = 'block';
+                toggleIcon.classList.add('rotated');
+            }} else {{
+                content.style.display = 'none';
+                toggleIcon.classList.remove('rotated');
+            }}
+        }}
+    </script>
 </body>
 </html>"""
             
