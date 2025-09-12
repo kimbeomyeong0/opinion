@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Background 생성기 - 이슈의 객관적 배경 정보 생성
-2단계 프로세스: Perplexity(사실 수집) → GPT(핵심 선별)
+Perplexity로 5개 핵심 사실 생성
 """
 
 import os
@@ -21,16 +21,16 @@ from rich.panel import Panel
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.supabase_manager import get_supabase_client
-from config.background_prompts import PERPLEXITY_RAW_PROMPT, GPT_REFINE_PROMPT, MODEL_CONFIGS
+from config.background_prompts import PERPLEXITY_RAW_PROMPT, MODEL_CONFIGS
 
 # 환경변수 로드
 load_dotenv()
 
 console = Console()
 
-def generate_raw_bullets_with_perplexity(title, subtitle, left_view, right_view, summary):
+def generate_background_with_perplexity(title, subtitle, left_view, right_view, summary):
     """
-    1단계: Perplexity API를 사용하여 10개+ 불렛 생성
+    Perplexity API를 사용하여 5개 핵심 사실 생성
     
     Args:
         title: 이슈 제목
@@ -40,7 +40,7 @@ def generate_raw_bullets_with_perplexity(title, subtitle, left_view, right_view,
         summary: 이슈 요약
         
     Returns:
-        str: 생성된 원본 불렛들
+        str: 생성된 background 텍스트
     """
     try:
         # Perplexity API 클라이언트 설정
@@ -67,63 +67,22 @@ def generate_raw_bullets_with_perplexity(title, subtitle, left_view, right_view,
             temperature=config['temperature']
         )
         
-        raw_bullets = response.choices[0].message.content.strip()
+        background = response.choices[0].message.content.strip()
         
         # 참조 번호 제거
-        raw_bullets = re.sub(r'\[\d+\]', '', raw_bullets)
-        raw_bullets = re.sub(r'\[\d+,\d+\]', '', raw_bullets)
-        raw_bullets = re.sub(r'\[\d+-\d+\]', '', raw_bullets)
+        background = re.sub(r'\[\d+\]', '', background)
+        background = re.sub(r'\[\d+,\d+\]', '', background)
+        background = re.sub(r'\[\d+-\d+\]', '', background)
         
-        return raw_bullets
-        
-    except Exception as e:
-        console.print(f"❌ Perplexity 불렛 생성 실패: {e}")
-        return None
-
-def refine_bullets_with_gpt(raw_bullets, title, subtitle):
-    """
-    2단계: GPT를 사용하여 핵심 5개 불렛 선별/정리
-    
-    Args:
-        raw_bullets: 1단계에서 생성된 원본 불렛들
-        title: 이슈 제목
-        subtitle: 이슈 부제목
-        
-    Returns:
-        str: 정리된 핵심 5개 불렛
-    """
-    try:
-        # GPT API 클라이언트 설정
-        gpt_client = openai.OpenAI(
-            api_key=os.getenv('OPENAI_API_KEY')
-        )
-        
-        # 프롬프트 구성
-        prompt = GPT_REFINE_PROMPT.format(
-            title=title,
-            subtitle=subtitle,
-            raw_bullets=raw_bullets
-        )
-        
-        # API 호출
-        config = MODEL_CONFIGS['gpt']
-        response = gpt_client.chat.completions.create(
-            model=config['model'],
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=config['max_tokens'],
-            temperature=config['temperature']
-        )
-        
-        refined_bullets = response.choices[0].message.content.strip()
-        return refined_bullets
+        return background
         
     except Exception as e:
-        console.print(f"❌ GPT 불렛 정리 실패: {e}")
+        console.print(f"❌ Perplexity background 생성 실패: {e}")
         return None
 
 def generate_background(title, subtitle, left_view, right_view, summary):
     """
-    2단계 프로세스로 background 생성
+    Perplexity로 background 생성
     
     Args:
         title: 이슈 제목
@@ -136,26 +95,15 @@ def generate_background(title, subtitle, left_view, right_view, summary):
         str: 생성된 background 텍스트
     """
     try:
-        # 1단계: Perplexity로 10개+ 불렛 생성
-        console.print("🔍 1단계: 사실 수집 중...")
-        raw_bullets = generate_raw_bullets_with_perplexity(title, subtitle, left_view, right_view, summary)
+        # Perplexity로 5개 핵심 사실 생성
+        console.print("🔍 핵심 사실 생성 중...")
+        background = generate_background_with_perplexity(title, subtitle, left_view, right_view, summary)
         
-        if not raw_bullets:
-            console.print("❌ 1단계 실패")
+        if not background:
+            console.print("❌ Background 생성 실패")
             return None
         
-        # 2단계: GPT로 핵심 5개 선별/정리
-        console.print("🎯 2단계: 핵심 선별 중...")
-        refined_bullets = refine_bullets_with_gpt(raw_bullets, title, subtitle)
-        
-        if not refined_bullets:
-            console.print("❌ 2단계 실패")
-            return None
-        
-        # 최종 결과
-        background = refined_bullets
-        
-        # 길이 검증 (참고용)
+        # 불렛 개수 검증 (참고용)
         bullet_count = len([line for line in background.split('\n') if line.strip() and (line.strip().startswith('•') or line.strip()[0].isdigit() and '. ' in line.strip())])
         console.print(f"✅ 생성 완료: {bullet_count}개 불렛")
         
@@ -261,6 +209,7 @@ def process_all_issues():
         
         console.print(f"📝 총 {total_issues}개 이슈의 background 생성 시작...")
         console.print("🚀 병렬 처리 모드 (최대 3개 동시 처리)")
+        console.print("📊 수치 중심: 시간, 숫자, 논리적 순서 포함")
         
         success_count = 0
         failed_count = 0
@@ -335,9 +284,9 @@ def show_sample_backgrounds():
 def main():
     """메인 함수"""
     console.print(Panel.fit(
-        "[bold blue]🎯 Background 생성기 (2단계 프로세스)[/bold blue]\n"
-        "1단계: Perplexity로 사실 수집 → 2단계: GPT로 핵심 선별",
-        title="Background Generator v2.0"
+        "[bold blue]🎯 Background 생성기 (수치 중심)[/bold blue]\n"
+        "Perplexity로 5개 핵심 사실 생성 (시간, 숫자, 논리적 순서)",
+        title="Background Generator v3.0"
     ))
     
     # 1. 전체 이슈 처리

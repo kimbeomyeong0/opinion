@@ -619,6 +619,37 @@ body {
     line-height: 1.5;
 }
 
+/* Background 불렛 포인트 개선 스타일 */
+.background-bullets {
+    margin: 16px 0;
+}
+
+.background-bullet-container {
+    margin-bottom: 16px;
+}
+
+.background-bullet {
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #2c3e50;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.background-bullet:hover {
+    background-color: #e3f2fd;
+    transform: translateX(2px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.background-bullet:last-child {
+    margin-bottom: 0;
+}
+
 /* 기타 유틸리티 */
 .no-content {
     color: #999999;
@@ -686,29 +717,42 @@ body {
     .side-view {
         padding: 12px;
     }
+    
+    .background-bullet {
+        padding: 10px 14px;
+        font-size: 15px;
+        margin-bottom: 12px;
+    }
 }
 """
     
     def _format_background(self, text: str) -> str:
-        """Background 텍스트 포맷팅 (불렛 포인트 줄바꿈 처리)"""
+        """Background 텍스트 포맷팅 (불렛 포인트 스타일)"""
         if not text or not text.strip():
             return text
         
         # <br> 태그를 실제 줄바꿈으로 변환
-        formatted_text = text.replace('<br>', '<br>')
+        formatted_text = text.replace('<br>', '\n')
         
         # 각 불렛 포인트를 별도 줄로 분리
         lines = [line.strip() for line in formatted_text.split('\n') if line.strip()]
         
-        # 각 줄이 불렛 포인트인지 확인하고 적절히 포맷팅
-        formatted_lines = []
+        # 불렛 포인트들을 HTML로 포맷팅
+        bullet_html = '<div class="background-bullets">'
         for line in lines:
             if line.startswith('•'):
-                formatted_lines.append(line)
+                # • 기호 제거
+                content = line[1:].strip()
             else:
-                formatted_lines.append(line)
+                content = line
+            
+            # HTML 생성 (날짜 없이)
+            bullet_html += '<div class="background-bullet-container">'
+            bullet_html += f'<div class="background-bullet">{content}</div>'
+            bullet_html += '</div>'
         
-        return '<br>'.join(formatted_lines)
+        bullet_html += '</div>'
+        return bullet_html
     
     def _highlight_last_sentence(self, text: str) -> str:
         """마지막 문장에 하이라이트 적용"""
