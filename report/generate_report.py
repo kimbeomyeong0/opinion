@@ -689,6 +689,27 @@ body {
 }
 """
     
+    def _format_background(self, text: str) -> str:
+        """Background 텍스트 포맷팅 (불렛 포인트 줄바꿈 처리)"""
+        if not text or not text.strip():
+            return text
+        
+        # <br> 태그를 실제 줄바꿈으로 변환
+        formatted_text = text.replace('<br>', '<br>')
+        
+        # 각 불렛 포인트를 별도 줄로 분리
+        lines = [line.strip() for line in formatted_text.split('\n') if line.strip()]
+        
+        # 각 줄이 불렛 포인트인지 확인하고 적절히 포맷팅
+        formatted_lines = []
+        for line in lines:
+            if line.startswith('•'):
+                formatted_lines.append(line)
+            else:
+                formatted_lines.append(line)
+        
+        return '<br>'.join(formatted_lines)
+    
     def _highlight_last_sentence(self, text: str) -> str:
         """마지막 문장에 하이라이트 적용"""
         if not text or not text.strip():
@@ -775,7 +796,7 @@ body {
         
         <div class="section">
             <div class="section-label">배경 정보</div>
-            <div class="section-content">{issue['background']}</div>
+            <div class="section-content">{self._format_background(issue['background'])}</div>
         </div>
     </div>
 """
