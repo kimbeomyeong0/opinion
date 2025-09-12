@@ -7,6 +7,9 @@ Background 생성기 - 이슈의 객관적 배경 정보 생성
 import os
 import time
 import re
+import asyncio
+import aiohttp
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import openai
 from rich.console import Console
@@ -190,8 +193,56 @@ def update_issue_background(issue_id, background):
         console.print(f"❌ DB 업데이트 오류: {e}")
         return False
 
+def process_single_issue(issue, index, total):
+    """단일 이슈 처리 (병렬 처리용)"""
+    issue_id = issue['id']
+    title = issue['title']
+    subtitle = issue.get('subtitle', '')
+    left_view = issue.get('left_view', '')
+    right_view = issue.get('right_view', '')
+    summary = issue.get('summary', '')
+    
+    try:
+        # Background 생성
+        background = generate_background(title, subtitle, left_view, right_view, summary)
+        
+        if background:
+            # DB 업데이트
+            if update_issue_background(issue_id, background):
+                return {
+                    'success': True,
+                    'index': index,
+                    'title': title,
+                    'message': f"✅ [{index}/{total}] {title[:50]}..."
+                }
+            else:
+                return {
+                    'success': False,
+                    'index': index,
+                    'title': title,
+                    'message': f"❌ [{index}/{total}] DB 업데이트 실패: {title[:50]}...",
+                    'error': f"DB 업데이트 실패: {title}"
+                }
+        else:
+            return {
+                'success': False,
+                'index': index,
+                'title': title,
+                'message': f"❌ [{index}/{total}] Background 생성 실패: {title[:50]}...",
+                'error': f"Background 생성 실패: {title}"
+            }
+            
+    except Exception as e:
+        return {
+            'success': False,
+            'index': index,
+            'title': title,
+            'message': f"❌ [{index}/{total}] 처리 중 오류: {title[:50]}...",
+            'error': f"처리 중 오류: {title} - {str(e)}"
+        }
+
 def process_all_issues():
-    """모든 이슈에 대해 background 생성 및 업데이트"""
+    """모든 이슈에 대해 background 생성 및 업데이트 (병렬 처리)"""
     try:
         supabase = get_supabase_client()
         
@@ -209,56 +260,36 @@ def process_all_issues():
         total_issues = len(issues)
         
         console.print(f"📝 총 {total_issues}개 이슈의 background 생성 시작...")
+        console.print("🚀 병렬 처리 모드 (최대 3개 동시 처리)")
         
         success_count = 0
         failed_count = 0
         error_details = []
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
+        # 병렬 처리 (최대 3개 동시 실행)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            # 작업 제출
+            future_to_issue = {
+                executor.submit(process_single_issue, issue, i+1, total_issues): issue 
+                for i, issue in enumerate(issues)
+            }
             
-            task = progress.add_task("Background 생성 중...", total=total_issues)
-            
-            for i, issue in enumerate(issues, 1):
-                issue_id = issue['id']
-                title = issue['title']
-                subtitle = issue.get('subtitle', '')
-                left_view = issue.get('left_view', '')
-                right_view = issue.get('right_view', '')
-                summary = issue.get('summary', '')
+            # 결과 수집
+            for future in as_completed(future_to_issue):
+                result = future.result()
                 
-                progress.update(task, description=f"[{i}/{total_issues}] {title[:30]}...")
+                # 결과 출력
+                console.print(result['message'])
                 
-                try:
-                    # Background 생성
-                    background = generate_background(title, subtitle, left_view, right_view, summary)
-                    
-                    if background:
-                        # DB 업데이트
-                        if update_issue_background(issue_id, background):
-                            success_count += 1
-                            console.print(f"✅ [{i}/{total_issues}] {title[:50]}...")
-                        else:
-                            failed_count += 1
-                            error_details.append(f"DB 업데이트 실패: {title}")
-                            console.print(f"❌ [{i}/{total_issues}] DB 업데이트 실패: {title[:50]}...")
-                    else:
-                        failed_count += 1
-                        error_details.append(f"Background 생성 실패: {title}")
-                        console.print(f"❌ [{i}/{total_issues}] Background 생성 실패: {title[:50]}...")
-                        
-                except Exception as e:
+                if result['success']:
+                    success_count += 1
+                else:
                     failed_count += 1
-                    error_msg = f"처리 중 오류: {title} - {str(e)}"
-                    error_details.append(error_msg)
-                    console.print(f"❌ [{i}/{total_issues}] {error_msg}")
+                    if 'error' in result:
+                        error_details.append(result['error'])
                 
-                # Rate limit 대응
-                time.sleep(1)
-                progress.advance(task)
+                # Rate limit 대응 (0.5초로 단축)
+                time.sleep(0.5)
         
         # 결과 리포트
         console.print(f"\n📊 Background 생성 완료!")
