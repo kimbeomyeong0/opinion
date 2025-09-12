@@ -361,7 +361,7 @@ class SupabaseManager:
             import sys
             import os
             sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            from embeddings.config import get_config
+            from config.embedding_config import get_config
             config = get_config()
             model_name = config["embedding_model"]
         

@@ -19,7 +19,7 @@ import pytz
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 설정 및 크롤러 모듈들 import
-from .config import CRAWLER_PARAMS, CRAWLER_GROUPS, PLAYWRIGHT_CRAWLERS, STAGE_DELAYS, RETRY_CONFIG
+from config.crawler_config import CRAWLER_PARAMS, CRAWLER_GROUPS, PLAYWRIGHT_CRAWLERS, STAGE_DELAYS, RETRY_CONFIG
 from .html_parsing.ohmynews_politics import OhmyNewsPoliticsCollector
 from .html_parsing.yonhap_politics import YonhapPoliticsCollector
 from .api_based.hani_politics import HaniPoliticsCollector
