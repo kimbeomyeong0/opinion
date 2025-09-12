@@ -40,7 +40,7 @@ def test_background_generation():
         print(background)
         
         # 불렛 개수 확인
-        bullet_count = len([line for line in background.split('\n') if line.strip().startswith('•')])
+        bullet_count = len([line for line in background.split('\n') if line.strip() and (line.strip().startswith('•') or line.strip()[0].isdigit() and '. ' in line.strip())])
         print(f"\n📊 불렛 개수: {bullet_count}개")
         
     else:

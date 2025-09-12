@@ -153,7 +153,7 @@ def generate_background(title, subtitle, left_view, right_view, summary):
         background = refined_bullets
         
         # 길이 검증 (참고용)
-        bullet_count = len([line for line in background.split('\n') if line.strip().startswith('•')])
+        bullet_count = len([line for line in background.split('\n') if line.strip() and (line.strip().startswith('•') or line.strip()[0].isdigit() and '. ' in line.strip())])
         console.print(f"✅ 생성 완료: {bullet_count}개 불렛")
         
         return background
