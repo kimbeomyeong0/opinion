@@ -619,7 +619,7 @@ body {
     line-height: 1.5;
 }
 
-/* Background 불렛 포인트 개선 스타일 */
+/* Background 불렛 포인트 스타일 */
 .background-bullets {
     margin: 16px 0;
 }
