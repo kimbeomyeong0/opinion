@@ -36,7 +36,6 @@ def get_table_counts(supabase):
     tables = [
         'articles',
         'articles_cleaned', 
-        'articles_embeddings',
         'issues',
         'issue_articles',
         'media_outlets'  # 참고용으로만 조회
@@ -103,12 +102,11 @@ def main():
     console.print(table)
     
     # 삭제 대상 테이블들 (외래키 제약조건을 고려한 순서)
-    # 1. articles_embeddings (다른 테이블을 참조)
-    # 2. issue_articles (다른 테이블을 참조)  
-    # 3. articles_cleaned (issue_articles에서 참조)
-    # 4. articles (articles_embeddings에서 참조)
-    # 5. issues (issue_articles에서 참조)
-    target_tables = ['articles_embeddings', 'issue_articles', 'articles_cleaned', 'articles', 'issues']
+    # 1. issue_articles (다른 테이블을 참조)  
+    # 2. articles_cleaned (issue_articles에서 참조)
+    # 3. articles (기본 테이블)
+    # 4. issues (issue_articles에서 참조)
+    target_tables = ['issue_articles', 'articles_cleaned', 'articles', 'issues']
     
     console.print(f"\n🗑️  {len(target_tables)}개 테이블의 데이터를 삭제합니다...")
     

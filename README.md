@@ -10,8 +10,7 @@ opinion/
 ├── requirements.txt             # 의존성 관리
 ├── .env.example                 # 환경변수 예시
 ├── config/                      # 설정 파일들
-│   ├── crawler_config.py       # 크롤러 설정
-│   └── embedding_config.py     # 임베딩 설정
+│   └── crawler_config.py       # 크롤러 설정
 ├── crawler/                     # 데이터 수집
 │   ├── api_based/              # API 기반 크롤러
 │   └── html_parsing/           # HTML 파싱 크롤러
@@ -47,7 +46,7 @@ cp .env.example .env
 ### 2. 전체 파이프라인 실행
 
 ```bash
-# 모든 단계 실행 (크롤링 → 전처리 → 임베딩 → 클러스터링 → 콘텐츠 생성)
+# 모든 단계 실행 (크롤링 → 전처리 → 클러스터링 → 콘텐츠 생성)
 python scripts/run_full_pipeline.py --all
 
 # 크롤링 건너뛰고 실행 (이미 데이터가 있는 경우)
@@ -63,13 +62,10 @@ python scripts/run_crawler.py
 # 2단계: 전처리
 python preprocessing/run_preprocessing.py
 
-# 3단계: 임베딩
-python scripts/run_embedding.py
-
-# 4단계: 클러스터링
+# 3단계: 클러스터링
 python scripts/run_clustering.py
 
-# 5단계: 콘텐츠 생성
+# 4단계: 콘텐츠 생성
 python scripts/run_content_generation.py --all
 ```
 
@@ -104,18 +100,6 @@ python preprocessing/run_preprocessing.py
 - 기사 본문에서 앞 5문장 추출
 - 노이즈 제거 (언론사 정보, 기자명 등)
 - `articles_cleaned` 테이블에 저장
-
-### 임베딩
-
-OpenAI API를 사용하여 텍스트 임베딩을 생성합니다:
-
-```bash
-python scripts/run_embedding.py
-```
-
-- `text-embedding-3-small` 모델 사용
-- 1536차원 벡터 생성
-- `articles_embeddings` 테이블에 저장
 
 ### 클러스터링
 
@@ -176,7 +160,6 @@ CRAWLER_PARAMS = {
 
 - `articles`: 원본 기사 데이터
 - `articles_cleaned`: 전처리된 기사 데이터
-- `articles_embeddings`: 임베딩 벡터
 - `issues`: 클러스터링된 이슈
 - `issue_articles`: 이슈-기사 연결
 - `media_outlets`: 언론사 정보
@@ -221,7 +204,6 @@ python scripts/clear_issues_data.py
 
 - **페이지네이션**: 대용량 데이터 처리 시 1000개씩 배치 처리
 - **병렬 처리**: 크롤러는 가능한 한 병렬 실행
-- **메모리 관리**: 임베딩 생성 시 배치 처리
 - **재시도 로직**: 네트워크 오류 시 자동 재시도
 
 ## 🔍 문제 해결

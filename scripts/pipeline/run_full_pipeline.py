@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 전체 파이프라인 통합 실행 스크립트
-1. 크롤링 → 2. 전처리 → 3. 임베딩 → 4. 클러스터링 → 5. 콘텐츠 생성
+1. 크롤링 → 2. 전처리 → 3. 클러스터링 → 4. 콘텐츠 생성
 """
 
 import sys
@@ -42,22 +42,10 @@ def run_preprocessing():
         console.print(f"❌ 전처리 실패: {e}")
         return False
 
-def run_embedding():
-    """3단계: 임베딩 실행"""
-    try:
-        console.print("\n[bold blue]3단계: 임베딩 시작[/bold blue]")
-        from scripts.run_embedding import main as embedding_main
-        embedding_main()
-        console.print("✅ 임베딩 완료")
-        return True
-    except Exception as e:
-        console.print(f"❌ 임베딩 실패: {e}")
-        return False
-
 def run_clustering():
-    """4단계: 클러스터링 실행"""
+    """3단계: 클러스터링 실행"""
     try:
-        console.print("\n[bold blue]4단계: 클러스터링 시작[/bold blue]")
+        console.print("\n[bold blue]3단계: 클러스터링 시작[/bold blue]")
         from scripts.run_clustering import main as clustering_main
         clustering_main()
         console.print("✅ 클러스터링 완료")
@@ -67,9 +55,9 @@ def run_clustering():
         return False
 
 def run_content_generation():
-    """5단계: 콘텐츠 생성 실행"""
+    """4단계: 콘텐츠 생성 실행"""
     try:
-        console.print("\n[bold blue]5단계: 콘텐츠 생성 시작[/bold blue]")
+        console.print("\n[bold blue]4단계: 콘텐츠 생성 시작[/bold blue]")
         from scripts.run_content_generation import main as content_main
         content_main()
         console.print("✅ 콘텐츠 생성 완료")
@@ -81,9 +69,9 @@ def run_content_generation():
 async def main():
     """메인 함수"""
     parser = argparse.ArgumentParser(description='전체 파이프라인 통합 실행')
-    parser.add_argument('--step', type=int, choices=[1,2,3,4,5], 
-                       help='실행할 단계 (1: 크롤링, 2: 전처리, 3: 임베딩, 4: 클러스터링, 5: 콘텐츠생성)')
-    parser.add_argument('--from-step', type=int, choices=[1,2,3,4,5], 
+    parser.add_argument('--step', type=int, choices=[1,2,3,4], 
+                       help='실행할 단계 (1: 크롤링, 2: 전처리, 3: 클러스터링, 4: 콘텐츠생성)')
+    parser.add_argument('--from-step', type=int, choices=[1,2,3,4], 
                        help='특정 단계부터 실행')
     parser.add_argument('--all', action='store_true', help='모든 단계 실행')
     parser.add_argument('--skip-crawling', action='store_true', help='크롤링 단계 건너뛰기')
@@ -92,7 +80,7 @@ async def main():
     
     console.print(Panel.fit(
         "[bold green]🚀 정치 이슈 분석 시스템 - 전체 파이프라인[/bold green]\n"
-        "크롤링 → 전처리 → 임베딩 → 클러스터링 → 콘텐츠 생성",
+        "크롤링 → 전처리 → 클러스터링 → 콘텐츠 생성",
         title="Full Pipeline"
     ))
     
@@ -100,7 +88,6 @@ async def main():
     steps = [
         ("크롤링", run_crawling, True),  # (이름, 함수, 비동기여부)
         ("전처리", run_preprocessing, False),
-        ("임베딩", run_embedding, False),
         ("클러스터링", run_clustering, False),
         ("콘텐츠 생성", run_content_generation, False)
     ]

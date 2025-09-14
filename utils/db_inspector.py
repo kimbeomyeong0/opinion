@@ -26,7 +26,6 @@ class DatabaseInspector:
         self.tables = [
             'articles',
             'articles_cleaned', 
-            'articles_embeddings',
             'issues',
             'issue_articles',
             'media_outlets'
@@ -105,70 +104,6 @@ class DatabaseInspector:
             console.print(f"❌ {table_name} 통계 조회 실패: {e}")
             return False
     
-    def show_embedding_analysis(self) -> bool:
-        """임베딩 데이터 분석"""
-        try:
-            console.print("\n🔍 임베딩 데이터 분석:")
-            
-            # 임베딩 타입별 통계
-            result = self.supabase.client.table('articles_embeddings').select('embedding_type, model_name').execute()
-            
-            if not result.data:
-                console.print("❌ 임베딩 데이터가 없습니다.")
-                return False
-            
-            # 타입별 집계
-            type_stats = {}
-            model_stats = {}
-            
-            for item in result.data:
-                et = item['embedding_type']
-                model = item['model_name']
-                
-                type_stats[et] = type_stats.get(et, 0) + 1
-                model_stats[model] = model_stats.get(model, 0) + 1
-            
-            # 통계 테이블
-            stats_table = Table(title="임베딩 통계")
-            stats_table.add_column("분류", style="cyan")
-            stats_table.add_column("값", style="green")
-            
-            stats_table.add_row("전체 임베딩", f"{len(result.data):,}개")
-            
-            for et, count in type_stats.items():
-                stats_table.add_row(f"타입: {et}", f"{count:,}개")
-            
-            for model, count in model_stats.items():
-                stats_table.add_row(f"모델: {model}", f"{count:,}개")
-            
-            console.print(stats_table)
-            
-            # 샘플 임베딩 벡터 확인
-            sample = self.supabase.client.table('articles_embeddings').select(
-                'cleaned_article_id, embedding_type, model_name'
-            ).limit(3).execute()
-            
-            if sample.data:
-                console.print(f"\n📝 임베딩 샘플:")
-                sample_table = Table()
-                sample_table.add_column("cleaned_article_id", style="cyan")
-                sample_table.add_column("embedding_type", style="green")
-                sample_table.add_column("model_name", style="yellow")
-                
-                for item in sample.data:
-                    sample_table.add_row(
-                        str(item['cleaned_article_id'])[:20] + "...",
-                        item['embedding_type'],
-                        item['model_name']
-                    )
-                
-                console.print(sample_table)
-            
-            return True
-            
-        except Exception as e:
-            console.print(f"❌ 임베딩 분석 실패: {e}")
-            return False
     
     def show_article_analysis(self) -> bool:
         """기사 데이터 분석"""
@@ -250,11 +185,10 @@ class DatabaseInspector:
             console.print("1. 전체 테이블 개요")
             console.print("2. 특정 테이블 스키마 보기")
             console.print("3. 특정 테이블 통계 보기")
-            console.print("4. 임베딩 데이터 분석")
-            console.print("5. 기사 데이터 분석")
+            console.print("4. 기사 데이터 분석")
             console.print("0. 종료")
             
-            choice = Prompt.ask("선택", choices=["0", "1", "2", "3", "4", "5"], default="1")
+            choice = Prompt.ask("선택", choices=["0", "1", "2", "3", "4"], default="1")
             
             if choice == "0":
                 console.print("👋 종료합니다.")
@@ -268,8 +202,6 @@ class DatabaseInspector:
                 table_name = Prompt.ask("테이블명", choices=self.tables)
                 self.show_table_stats(table_name)
             elif choice == "4":
-                self.show_embedding_analysis()
-            elif choice == "5":
                 self.show_article_analysis()
 
 def main():
