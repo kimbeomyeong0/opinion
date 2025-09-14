@@ -173,6 +173,14 @@ body {
     margin-bottom: 24px;
 }
 
+/* 3개 관점 나란히 배치 */
+.three-views-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
 .side-view {
     flex: 1;
     padding: 16px;
@@ -190,8 +198,21 @@ body {
     border-color: rgba(220, 53, 69, 0.2);
 }
 
-.side-view .view-title {
+.side-view.center {
+    background-color: rgba(40, 167, 69, 0.05);
+    border-color: rgba(40, 167, 69, 0.2);
+}
+
+.side-view .view-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
     margin-bottom: 8px;
+}
+
+.side-view .view-title {
+    margin-bottom: 0;
     font-size: 14px;
     font-weight: 600;
     background: none;
@@ -200,10 +221,28 @@ body {
     border-radius: 0;
 }
 
-.side-view .view-content {
+.side-view .view-summary {
     font-size: 14px;
     line-height: 1.5;
     color: #333333;
+    cursor: pointer;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.side-view .view-content {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #666666;
+}
+
+.side-view .toggle-icon {
+    font-size: 12px;
+    transition: transform 0.2s ease;
+}
+
+.side-view .toggle-icon.rotated {
+    transform: rotate(180deg);
 }
 
 /* 접을 수 있는 섹션 */
@@ -226,6 +265,16 @@ body {
     background-color: #f8f9fa;
     border-radius: 4px;
     padding: 8px 12px;
+}
+
+.collapsible-section .view-summary {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #333333;
+    cursor: pointer;
+    margin-bottom: 8px;
+    font-weight: 500;
+    padding: 8px 0;
 }
 
 .toggle-icon {
@@ -605,7 +654,7 @@ body {
 
 .view-title.center {
     background-color: transparent;
-    color: #6c757d;
+    color: #28a745;
 }
 
 .view-title.right {
@@ -629,15 +678,19 @@ body {
 }
 
 .background-bullet {
-    padding: 8px 12px;
+    padding: 12px 16px;
     background-color: #f8f9fa;
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.7;
     color: #2c3e50;
-    font-weight: 500;
+    font-weight: 400;
     transition: all 0.2s ease;
     position: relative;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+    max-width: 100%;
 }
 
 .background-bullet:hover {
@@ -714,6 +767,11 @@ body {
         gap: 12px;
     }
     
+    .three-views-container {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
     .side-view {
         padding: 12px;
     }
@@ -727,12 +785,15 @@ body {
 """
     
     def _format_background(self, text: str) -> str:
-        """Background 텍스트 포맷팅 (불렛 포인트 스타일)"""
+        """Background 텍스트 포맷팅 (불렛 포인트 스타일) - 개선된 버전"""
         if not text or not text.strip():
             return text
         
+        # "관련 기사 내용:" 라벨 제거
+        formatted_text = text.replace('관련 기사 내용:', '').strip()
+        
         # <br> 태그를 실제 줄바꿈으로 변환
-        formatted_text = text.replace('<br>', '\n')
+        formatted_text = formatted_text.replace('<br>', '\n')
         
         # 각 불렛 포인트를 별도 줄로 분리
         lines = [line.strip() for line in formatted_text.split('\n') if line.strip()]
@@ -746,7 +807,11 @@ body {
             else:
                 content = line
             
-            # HTML 생성 (날짜 없이)
+            # 너무 긴 텍스트는 적절히 줄임 (200자 제한)
+            if len(content) > 200:
+                content = content[:200] + "..."
+            
+            # HTML 생성
             bullet_html += '<div class="background-bullet-container">'
             bullet_html += f'<div class="background-bullet">{content}</div>'
             bullet_html += '</div>'
@@ -826,12 +891,12 @@ body {
         return f"""
     <div class="issue-card">
         <div class="issue-header">
-            <div class="meta-info">{issue['total_articles']}개 기사 ∙ {formatted_date}</div>
+            <div class="meta-info">{stats['total']}개 기사 ∙ {formatted_date}</div>
             <div class="title">{issue['title']}</div>
             <div class="subtitle">{issue['subtitle']}</div>
         </div>
         
-        {self._generate_side_views(issue)}
+        {self._generate_three_views(issue)}
         
         <div class="gauge-container">
             <div class="gauge-title">언론사 성향별 보도 비율</div>
@@ -881,33 +946,138 @@ body {
         
         return first_sentence
 
+    def _parse_view_data(self, view_data: str) -> tuple:
+        """view 데이터를 제목과 내용으로 파싱"""
+        if not view_data or not view_data.strip():
+            return '', ''
+        
+        # "제목|||내용" 형태로 저장된 데이터 파싱
+        if '|||' in view_data:
+            parts = view_data.split('|||', 1)
+            title = parts[0].strip()
+            content = parts[1].strip() if len(parts) > 1 else ''
+            return title, content
+        else:
+            # 기존 형태의 데이터 (전체 내용만 있는 경우)
+            return '', view_data.strip()
+
     def _generate_side_views(self, issue: Dict[str, Any]) -> str:
-        """좌우 관점을 나란히 배치 (전체 본문)"""
-        left_content = issue.get('left_view', '').strip() if issue.get('left_view') else ''
-        right_content = issue.get('right_view', '').strip() if issue.get('right_view') else ''
+        """좌우 관점을 나란히 배치 (제목만 표시, 더보기 기능) - 툴팁 포함"""
+        # 기존 구조에서 view 데이터 파싱
+        left_title, left_content = self._parse_view_data(issue.get('left_view', ''))
+        right_title, right_content = self._parse_view_data(issue.get('right_view', ''))
+        
+        # 툴팁 적용
+        left_title_with_tooltips = self.tooltip_system.generate_tooltip_html(left_title)
+        left_content_with_tooltips = self.tooltip_system.generate_tooltip_html(left_content)
+        right_title_with_tooltips = self.tooltip_system.generate_tooltip_html(right_title)
+        right_content_with_tooltips = self.tooltip_system.generate_tooltip_html(right_content)
         
         left_html = ""
         right_html = ""
         
-        if left_content:
+        if left_title:
             left_html = f"""
         <div class="side-view left">
-            <div class="view-title left">좌파 관점</div>
-            <div class="view-content">{left_content}</div>
+            <div class="view-header" onclick="toggleView('left-{issue['id'][:8]}')">
+                <div class="view-title left">좌파 관점</div>
+                <span class="toggle-icon" id="toggle-left-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="view-summary" onclick="toggleView('left-{issue['id'][:8]}')">
+                {left_title}
+            </div>
+            <div class="view-content collapsible" id="content-left-{issue['id'][:8]}" style="display: none;">
+                {self._format_content(left_content)}
+            </div>
         </div>
 """
         
-        if right_content:
+        if right_title:
             right_html = f"""
         <div class="side-view right">
-            <div class="view-title right">우파 관점</div>
-            <div class="view-content">{right_content}</div>
+            <div class="view-header" onclick="toggleView('right-{issue['id'][:8]}')">
+                <div class="view-title right">우파 관점</div>
+                <span class="toggle-icon" id="toggle-right-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="view-summary" onclick="toggleView('right-{issue['id'][:8]}')">
+                {right_title}
+            </div>
+            <div class="view-content collapsible" id="content-right-{issue['id'][:8]}" style="display: none;">
+                {self._format_content(right_content)}
+            </div>
         </div>
 """
         
         return f"""
         <div class="side-views-container">
             {left_html}
+            {right_html}
+        </div>
+"""
+    
+    def _generate_three_views(self, issue: Dict[str, Any]) -> str:
+        """좌파, 우파, 중립 관점을 3개 컬럼으로 배치"""
+        # 기존 구조에서 view 데이터 파싱
+        left_title, left_content = self._parse_view_data(issue.get('left_view', ''))
+        right_title, right_content = self._parse_view_data(issue.get('right_view', ''))
+        center_title, center_content = self._parse_view_data(issue.get('center_view', ''))
+        
+        left_html = ""
+        right_html = ""
+        center_html = ""
+        
+        if left_title:
+            left_html = f"""
+        <div class="side-view left">
+            <div class="view-header" onclick="toggleView('left-{issue['id'][:8]}')">
+                <div class="view-title left">좌파 관점</div>
+                <span class="toggle-icon" id="toggle-left-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="view-summary" onclick="toggleView('left-{issue['id'][:8]}')">
+                {left_title}
+            </div>
+            <div class="view-content collapsible" id="content-left-{issue['id'][:8]}" style="display: none;">
+                {self._format_content(left_content)}
+            </div>
+        </div>
+"""
+        
+        if right_title:
+            right_html = f"""
+        <div class="side-view right">
+            <div class="view-header" onclick="toggleView('right-{issue['id'][:8]}')">
+                <div class="view-title right">우파 관점</div>
+                <span class="toggle-icon" id="toggle-right-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="view-summary" onclick="toggleView('right-{issue['id'][:8]}')">
+                {right_title}
+            </div>
+            <div class="view-content collapsible" id="content-right-{issue['id'][:8]}" style="display: none;">
+                {self._format_content(right_content)}
+            </div>
+        </div>
+"""
+        
+        if center_title:
+            center_html = f"""
+        <div class="side-view center">
+            <div class="view-header" onclick="toggleView('center-{issue['id'][:8]}')">
+                <div class="view-title center">중립 관점</div>
+                <span class="toggle-icon" id="toggle-center-{issue['id'][:8]}">▼</span>
+            </div>
+            <div class="view-summary" onclick="toggleView('center-{issue['id'][:8]}')">
+                {center_title}
+            </div>
+            <div class="view-content collapsible" id="content-center-{issue['id'][:8]}" style="display: none;">
+                {self._format_content(center_content)}
+            </div>
+        </div>
+"""
+        
+        return f"""
+        <div class="three-views-container">
+            {left_html}
+            {center_html}
             {right_html}
         </div>
 """
@@ -938,25 +1108,28 @@ body {
 """
 
     def _generate_collapsible_center_view(self, issue: Dict[str, Any]) -> str:
-        """접을 수 있는 중립 관점 섹션"""
-        center_content = issue.get('center_view', '').strip() if issue.get('center_view') else ''
+        """접을 수 있는 중립 관점 섹션 - 툴팁 포함"""
+        center_title, center_content = self._parse_view_data(issue.get('center_view', ''))
         
-        if not center_content:
+        if not center_title:
             return ""
         
-        first_sentence = self._get_first_sentence(center_content)
-        remaining_content = self._get_remaining_content(center_content)
+        # 툴팁 적용
+        center_title_with_tooltips = self.tooltip_system.generate_tooltip_html(center_title)
+        center_content_with_tooltips = self.tooltip_system.generate_tooltip_html(center_content)
         
         return f"""
         <div class="collapsible-section">
-            <div class="section-label collapsible-header" onclick="toggleCollapse('center-{issue['id'][:8]}')">
+            <div class="section-label collapsible-header" onclick="toggleView('center-{issue['id'][:8]}')">
                 <span>중립 관점</span>
                 <span class="toggle-icon" id="toggle-center-{issue['id'][:8]}">▼</span>
             </div>
             <div class="section-content">
-                <div class="first-sentence">{first_sentence}</div>
-                <div class="remaining-content" id="center-{issue['id'][:8]}" style="display: none;">
-                    {remaining_content}
+                <div class="view-summary" onclick="toggleView('center-{issue['id'][:8]}')">
+                    {center_title}
+                </div>
+                <div class="view-content collapsible" id="content-center-{issue['id'][:8]}" style="display: none;">
+                    {self._format_content(center_content)}
                 </div>
             </div>
         </div>
@@ -979,6 +1152,23 @@ body {
             remaining_sentences += '.'
         
         return remaining_sentences
+
+    def _format_content(self, content: str) -> str:
+        """내용을 HTML 형식으로 포맷팅"""
+        if not content:
+            return ""
+        
+        # 줄바꿈을 <br>로 변환
+        formatted = content.replace('\n', '<br>')
+        
+        # 문단 구분을 위해 이중 줄바꿈을 <p> 태그로 변환
+        paragraphs = formatted.split('<br><br>')
+        formatted = '</p><p>'.join(paragraphs)
+        
+        if formatted:
+            formatted = f'<p>{formatted}</p>'
+        
+        return formatted
 
     def _generate_center_view(self, issue: Dict[str, Any]) -> str:
         """중립 관점만 따로 표시 (전체 본문)"""
@@ -1049,9 +1239,9 @@ body {
     def generate_html(self) -> str:
         """전체 HTML 생성"""
         try:
-            # 이슈 데이터 조회 (source 정보 포함)
+            # 이슈 데이터 조회 (기존 view 구조 포함)
             result = self.supabase_manager.client.table('issues').select(
-                'id, title, subtitle, background, summary, left_view, center_view, right_view, source, left_source, center_source, right_source, created_at'
+                'id, title, subtitle, background, left_view, center_view, right_view, created_at'
             ).order('created_at', desc=True).execute()
             
             if not result.data:
@@ -1065,9 +1255,14 @@ body {
                 stats = self._get_article_stats(issue['id'])
                 issue['total_articles'] = stats['total']
             
+            # source가 10개 이상인 이슈만 필터링
+            filtered_issues = [issue for issue in result.data if issue.get('total_articles', 0) >= 10]
+            console.print(f"✅ source 10개 이상 이슈 필터링: {len(result.data)}개 → {len(filtered_issues)}개")
+            
             # source 순으로 정렬 (전체 기사 수 기준 내림차순)
-            result.data.sort(key=lambda x: x.get('total_articles', 0), reverse=True)
+            filtered_issues.sort(key=lambda x: x.get('total_articles', 0), reverse=True)
             console.print("✅ source 순으로 정렬 완료")
+            
             
             # HTML 생성
             html = f"""<!DOCTYPE html>
@@ -1086,7 +1281,8 @@ body {
         <div class="subtitle">언론사 성향별 분석</div>
     </div>
     
-    {''.join([self._generate_issue_card(issue) for issue in result.data])}
+    {''.join([self._generate_issue_card(issue) for issue in filtered_issues])}
+    
     
     <script>
         function toggleCollapse(elementId) {{
@@ -1098,6 +1294,21 @@ body {
                 toggleIcon.classList.add('rotated');
             }} else {{
                 content.style.display = 'none';
+                toggleIcon.classList.remove('rotated');
+            }}
+        }}
+        
+        function toggleView(viewId) {{
+            const content = document.getElementById('content-' + viewId);
+            const toggleIcon = document.getElementById('toggle-' + viewId);
+            
+            if (content.style.display === 'none') {{
+                content.style.display = 'block';
+                toggleIcon.textContent = '▲';
+                toggleIcon.classList.add('rotated');
+            }} else {{
+                content.style.display = 'none';
+                toggleIcon.textContent = '▼';
                 toggleIcon.classList.remove('rotated');
             }}
         }}
@@ -1136,6 +1347,7 @@ body {
         except Exception as e:
             console.print(f"❌ 보고서 생성 실패: {str(e)}")
             return False
+    
 
 def main():
     """메인 함수"""

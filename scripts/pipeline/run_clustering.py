@@ -212,15 +212,41 @@ class LLMClusteringExperiment:
             print("-" * 40)
     
     def generate_background(self, cluster: Cluster) -> str:
-        """클러스터의 배경 정보 생성"""
+        """클러스터의 배경 정보 생성 - 객관적 사실 불렛 형태"""
         if not cluster.articles:
             return ""
         
-        # 기사 내용의 앞부분을 배경 정보로 사용
-        contents = [article.merged_content[:100] for article in cluster.articles[:3]]  # 최대 3개, 100자씩
-        background = f"관련 기사 내용:\n"
-        for i, content in enumerate(contents, 1):
-            background += f"• {content}...\n"
+        # 기사에서 핵심 사실들을 추출하여 객관적 배경 정보 생성
+        facts = []
+        
+        # 기사 제목과 첫 문장에서 핵심 정보 추출
+        for article in cluster.articles[:5]:  # 최대 5개 기사
+            # 제목에서 핵심 정보 추출
+            title = article.title
+            if title and len(title) > 10:
+                facts.append(title)
+            
+            # 첫 문장에서 핵심 정보 추출 (50자 이내)
+            content = article.merged_content
+            if content:
+                # 첫 문장 추출
+                first_sentence = content.split('.')[0].strip()
+                if len(first_sentence) > 20 and len(first_sentence) <= 80:
+                    facts.append(first_sentence)
+        
+        # 중복 제거 및 정리
+        unique_facts = []
+        for fact in facts:
+            if fact not in unique_facts and len(fact) > 15:
+                unique_facts.append(fact)
+        
+        # 최대 5개의 핵심 사실로 제한
+        unique_facts = unique_facts[:5]
+        
+        # 불렛 포인트 형태로 구성
+        background = ""
+        for fact in unique_facts:
+            background += f"• {fact}\n"
         
         return background.strip()
     
@@ -237,7 +263,6 @@ class LLMClusteringExperiment:
                 issue_data = {
                     "date": datetime.now().date().isoformat(),
                     "title": cluster.name,
-                    "summary": f"{len(cluster.articles)}개 기사로 구성된 이슈",
                     "subtitle": cluster.description,
                     "background": self.generate_background(cluster),
                     "source": len(cluster.articles),

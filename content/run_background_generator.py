@@ -28,7 +28,7 @@ load_dotenv()
 
 console = Console()
 
-def generate_background_with_perplexity(title, subtitle, left_view, right_view, summary):
+def generate_background_with_perplexity(title, subtitle, left_view, right_view, center_view):
     """
     Perplexity API를 사용하여 5개 핵심 사실 생성
     
@@ -37,7 +37,7 @@ def generate_background_with_perplexity(title, subtitle, left_view, right_view, 
         subtitle: 이슈 부제목
         left_view: 좌파 관점
         right_view: 우파 관점
-        summary: 이슈 요약
+        center_view: 중도 관점
         
     Returns:
         str: 생성된 background 텍스트
@@ -55,7 +55,7 @@ def generate_background_with_perplexity(title, subtitle, left_view, right_view, 
             subtitle=subtitle,
             left_view=left_view,
             right_view=right_view,
-            summary=summary
+            center_view=center_view
         )
         
         # API 호출
@@ -80,7 +80,7 @@ def generate_background_with_perplexity(title, subtitle, left_view, right_view, 
         console.print(f"❌ Perplexity background 생성 실패: {e}")
         return None
 
-def generate_background(title, subtitle, left_view, right_view, summary):
+def generate_background(title, subtitle, left_view, right_view, center_view):
     """
     Perplexity로 background 생성
     
@@ -89,7 +89,7 @@ def generate_background(title, subtitle, left_view, right_view, summary):
         subtitle: 이슈 부제목
         left_view: 좌파 관점
         right_view: 우파 관점
-        summary: 이슈 요약
+        center_view: 중도 관점
         
     Returns:
         str: 생성된 background 텍스트
@@ -97,7 +97,7 @@ def generate_background(title, subtitle, left_view, right_view, summary):
     try:
         # Perplexity로 5개 핵심 사실 생성
         console.print("🔍 핵심 사실 생성 중...")
-        background = generate_background_with_perplexity(title, subtitle, left_view, right_view, summary)
+        background = generate_background_with_perplexity(title, subtitle, left_view, right_view, center_view)
         
         if not background:
             console.print("❌ Background 생성 실패")
@@ -148,11 +148,11 @@ def process_single_issue(issue, index, total):
     subtitle = issue.get('subtitle', '')
     left_view = issue.get('left_view', '')
     right_view = issue.get('right_view', '')
-    summary = issue.get('summary', '')
+    center_view = issue.get('center_view', '')
     
     try:
         # Background 생성
-        background = generate_background(title, subtitle, left_view, right_view, summary)
+        background = generate_background(title, subtitle, left_view, right_view, center_view)
         
         if background:
             # DB 업데이트
@@ -197,7 +197,7 @@ def process_all_issues():
         # 모든 이슈 조회 (덮어쓰기 방식)
         console.print("🔍 모든 이슈의 background를 새로 생성합니다...")
         result = supabase.client.table('issues').select(
-            'id, title, subtitle, left_view, right_view, summary, background'
+            'id, title, subtitle, left_view, right_view, center_view, background'
         ).execute()
         
         if not result.data:
