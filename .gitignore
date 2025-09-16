@@ -69,3 +69,4 @@ tmp/
 *.csv
 *.xlsx
 data/
+.vercel
