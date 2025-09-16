@@ -688,9 +688,9 @@ body {
                 stats = self._get_article_stats(issue['id'])
                 issue['total_articles'] = stats['total']
             
-            # source가 10개 이상인 이슈만 필터링
-            filtered_issues = [issue for issue in result.data if issue.get('total_articles', 0) >= 10]
-            console.print(f"✅ source 10개 이상 이슈 필터링: {len(result.data)}개 → {len(filtered_issues)}개")
+            # 모든 이슈 포함 (필터링 제거)
+            filtered_issues = result.data
+            console.print(f"✅ 모든 이슈 포함: {len(filtered_issues)}개")
             
             # source 순으로 정렬
             filtered_issues.sort(key=lambda x: x.get('total_articles', 0), reverse=True)
