@@ -623,7 +623,7 @@ body {
         
         # 제목과 부제목에서 따옴표 제거
         clean_title = str(issue['title']).strip('"').strip("'") if issue['title'] else ""
-        clean_subtitle = str(issue['subtitle']).strip('"').strip("'") if issue['subtitle'] else ""
+        clean_subtitle = str(issue['issue_summary']).strip('"').strip("'") if issue['issue_summary'] else ""
         
         return f"""
     <div class="issue-card">
@@ -648,7 +648,7 @@ body {
                 <span class="toggle-icon" id="toggle-background-{issue['id'][:8]}">▼</span>
             </div>
             <div class="section-content" id="background-{issue['id'][:8]}" style="display: none;">
-                {self._format_background(issue['background'])}
+                {self._format_background(issue['issue_timeline'])}
             </div>
         </div>
     </div>
@@ -674,7 +674,7 @@ body {
         try:
             # 이슈 데이터 조회
             result = self.supabase_manager.client.table('issues').select(
-                'id, title, subtitle, background, left_view, center_view, right_view, created_at'
+                'id, title, issue_summary, issue_timeline, left_view, center_view, right_view, created_at'
             ).order('created_at', desc=True).execute()
             
             if not result.data:
