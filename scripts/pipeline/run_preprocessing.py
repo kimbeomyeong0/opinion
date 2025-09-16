@@ -66,6 +66,9 @@ class FastPreprocessor:
             (r'\[(속보|단독|기획|특집|인터뷰|분석|해설|논평|사설|칼럼|기고|오피니언|포토|영상|동영상|인포그래픽)\]', ''),
             (r'^[가-힣]{1,2}\s*(기자|특파원)\s*[:=]?', ''),
             (r'[◆◇▲△●○■□★☆▶◀◁▷①②③④⑤⑥⑦⑧⑨⑩]+', ''),
+            (r'^\[.*?\]', ''),  # 맨 앞의 [내용] 제거
+            (r'^\(.*?\)', ''),  # 맨 앞의 (내용) 제거
+            (r'^<.*?>', ''),    # 맨 앞의 <내용> 제거
             (r'\s+', ' ')
         ]
         
@@ -101,10 +104,24 @@ class FastPreprocessor:
                 'id, title, content, media_id, published_at, is_preprocessed'
             ).eq('is_preprocessed', False).range(offset, offset + limit - 1).execute()
             
+            print(f"  🔍 조회된 기사 수: {len(result.data) if result.data else 0}개 (offset: {offset}, limit: {limit})")
             return result.data if result.data else []
             
         except Exception as e:
             print(f"❌ 기사 조회 실패 (offset: {offset}): {str(e)}")
+            return []
+    
+    def fetch_all_unprocessed_articles(self, limit: int) -> List[Dict[str, Any]]:
+        """전처리되지 않은 모든 기사를 한 번에 조회"""
+        try:
+            result = self.supabase_manager.client.table('articles').select(
+                'id, title, content, media_id, published_at, is_preprocessed'
+            ).eq('is_preprocessed', False).limit(limit).execute()
+            
+            return result.data if result.data else []
+            
+        except Exception as e:
+            print(f"❌ 전체 기사 조회 실패: {str(e)}")
             return []
     
     def update_articles_batch(self, updates: List[Dict[str, Any]]) -> int:
@@ -165,7 +182,7 @@ class FastPreprocessor:
             return 0
     
     def process_articles_fast(self, max_articles: Optional[int] = None) -> bool:
-        """고속 기사 전처리 메인 프로세스 (페이지네이션 지원)"""
+        """고속 기사 전처리 메인 프로세스 (전체 조회 후 처리)"""
         try:
             # 총 개수 조회
             total_unprocessed = self.get_total_unprocessed_count()
@@ -177,27 +194,29 @@ class FastPreprocessor:
             process_count = min(max_articles or total_unprocessed, total_unprocessed)
             print(f"🚀 고속 전처리 시작... (처리 예정: {process_count:,}개)")
             
+            # 모든 처리할 기사를 미리 조회
+            print("📋 처리할 기사들을 미리 조회 중...")
+            all_articles = self.fetch_all_unprocessed_articles(process_count)
+            if not all_articles:
+                print("📝 조회된 기사가 없습니다.")
+                return True
+            
+            print(f"✅ {len(all_articles)}개 기사 조회 완료")
+            
             total_processed = 0
             total_failed = 0
             batch_count = 0
             start_time = time.time()
-            offset = 0
             
-            # 페이지네이션으로 전체 처리
-            while offset < process_count:
+            # 배치별로 처리
+            for i in range(0, len(all_articles), self.batch_size):
                 batch_count += 1
-                current_batch_size = min(self.batch_size, process_count - offset)
+                batch_articles = all_articles[i:i + self.batch_size]
                 
-                print(f"📦 배치 {batch_count} 처리 중... (기사 {offset + 1}-{offset + current_batch_size})")
-                
-                # 배치 조회
-                articles = self.fetch_unprocessed_articles_batch(offset, current_batch_size)
-                if not articles:
-                    print("📝 더 이상 처리할 기사가 없습니다.")
-                    break
+                print(f"📦 배치 {batch_count} 처리 중... (기사 {i + 1}-{i + len(batch_articles)})")
                 
                 # 배치 처리
-                processed_updates, failed_count = self.process_batch(articles)
+                processed_updates, failed_count = self.process_batch(batch_articles)
                 total_failed += failed_count
                 
                 # 배치 업데이트
@@ -207,23 +226,15 @@ class FastPreprocessor:
                 
                 # 진행률 표시
                 elapsed_time = time.time() - start_time
-                progress = min(100, (offset + len(articles)) / process_count * 100)
+                progress = min(100, (i + len(batch_articles)) / len(all_articles) * 100)
                 rate = total_processed / elapsed_time if elapsed_time > 0 else 0
-                eta = (process_count - total_processed) / rate if rate > 0 else 0
+                eta = (len(all_articles) - total_processed) / rate if rate > 0 else 0
                 
                 print(f"  ✅ 성공: {total_processed:,}개, ❌ 실패: {total_failed:,}개")
                 print(f"  📊 진행률: {progress:.1f}%, 속도: {rate:.1f}개/초, 예상 완료: {eta/60:.1f}분")
                 
-                # 다음 배치로 이동
-                offset += len(articles)
-                
                 # 배치 간 짧은 대기 (API 제한 방지)
                 time.sleep(0.1)
-                
-                # 실제 처리된 기사 수가 배치 크기보다 작으면 마지막 배치
-                if len(articles) < current_batch_size:
-                    print("📝 마지막 배치 처리 완료")
-                    break
             
             # 최종 결과
             total_time = time.time() - start_time
