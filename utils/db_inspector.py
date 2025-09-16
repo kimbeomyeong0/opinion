@@ -12,8 +12,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 
 # 프로젝트 모듈
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from utils.supabase_manager import get_supabase_client
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.supabase_manager import SupabaseManager
 
 console = Console()
 

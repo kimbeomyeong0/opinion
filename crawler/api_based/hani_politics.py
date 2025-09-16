@@ -29,6 +29,9 @@ class HaniPoliticsCollector:
         self.politics_url = "https://www.hani.co.kr/arti/politics"
         self.articles = []
         self.supabase_manager = SupabaseManager()
+        self._playwright = None
+        self._browser = None
+        self._semaphore = asyncio.Semaphore(3)  # 동시 처리 제한
         
     async def _get_page_articles(self, page_num: int) -> list:
         """특정 페이지에서 기사 목록 수집"""
@@ -41,14 +44,26 @@ class HaniPoliticsCollector:
             
             console.print(f"📡 페이지 수집: {url}")
             
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                
-                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-                
-                # 기사 목록 추출
-                articles = await page.evaluate("""
+            # 브라우저 재사용
+            if not self._browser:
+                self._playwright = await async_playwright().start()
+                self._browser = await self._playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor',
+                        '--memory-pressure-off'
+                    ]
+                )
+            
+            page = await self._browser.new_page()
+            await page.goto(url, wait_until='domcontentloaded', timeout=10000)
+            
+            # 기사 목록 추출
+            articles = await page.evaluate("""
                     () => {
                         const articleElements = document.querySelectorAll('a[href*="/arti/politics/"][href$=".html"]');
                         const articles = [];
@@ -69,13 +84,13 @@ class HaniPoliticsCollector:
                         return articles.slice(0, 20); // 페이지당 최대 20개
                     }
                 """)
-                
-                await browser.close()
-                
-                console.print(f"🔍 페이지에서 {len(articles)}개 기사 발견")
-                
-                for i, article in enumerate(articles, 1):
-                    console.print(f"📰 기사 발견 [{i}]: {article['title'][:50]}...")
+            
+            await page.close()
+            
+            console.print(f"🔍 페이지에서 {len(articles)}개 기사 발견")
+            
+            for i, article in enumerate(articles, 1):
+                console.print(f"📰 기사 발견 [{i}]: {article['title'][:50]}...")
                 
                 return articles
                 
@@ -85,72 +100,110 @@ class HaniPoliticsCollector:
     
     async def _extract_content(self, url: str) -> dict:
         """기사 본문 추출"""
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
+        async with self._semaphore:  # 동시 처리 제한
+            try:
+                # 브라우저 재사용
+                if not self._browser:
+                    self._playwright = await async_playwright().start()
+                    self._browser = await self._playwright.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--no-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--disable-gpu',
+                            '--disable-web-security',
+                            '--disable-features=VizDisplayCompositor',
+                            '--memory-pressure-off'
+                        ]
+                    )
                 
-                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                page = await self._browser.new_page()
+                await page.goto(url, wait_until='domcontentloaded', timeout=10000)
                 
-                # 기사 본문 추출
+                # 기사 본문 추출 - 최적화된 선택자
                 content_data = await page.evaluate("""
                     () => {
-                        // 기사 본문 영역 찾기
-                        const contentArea = document.querySelector('.article-text');
-                        if (!contentArea) return { content: '', published_at: '' };
+                        const result = { content: '', published_at: '' };
                         
-                        // 불필요한 요소 제거
-                        const elementsToRemove = [
-                            '.ArticleDetailAudioPlayer_wrap__',
-                            '.ArticleDetailContent_imageContainer__',
-                            '.ArticleDetailContent_adWrap__',
-                            '.ArticleDetailContent_adFlex__',
-                            '.BaseAd_adWrapper__'
+                        // 1. 발행 시간 추출 (우선순위별)
+                        const timeSelectors = [
+                            'li.ArticleDetailView_dateListItem__mRc3d span',
+                            '.article-date span',
+                            '.date span',
+                            'time'
                         ];
                         
-                        elementsToRemove.forEach(selector => {
-                            const elements = contentArea.querySelectorAll(selector);
-                            elements.forEach(el => el.remove());
-                        });
-                        
-                        // <p class="text"> 태그만 추출
-                        const textParagraphs = contentArea.querySelectorAll('p.text');
-                        const contentLines = [];
-                        
-                        textParagraphs.forEach(p => {
-                            const text = p.textContent || p.innerText || '';
-                            const trimmedText = text.trim();
-                            
-                            // 기자 정보 제외 (이메일 포함)
-                            if (trimmedText && 
-                                !trimmedText.includes('@') && 
-                                !trimmedText.includes('기자') &&
-                                !trimmedText.includes('특파원') &&
-                                !trimmedText.includes('통신원')) {
-                                contentLines.push(trimmedText);
+                        for (const selector of timeSelectors) {
+                            const element = document.querySelector(selector);
+                            if (element && element.textContent.trim()) {
+                                result.published_at = element.textContent.trim();
+                                break;
                             }
-                        });
+                        }
                         
-                        // 각 <p>를 개행으로 구분하여 결합
-                        const content = contentLines.join('\\n\\n');
+                        // 2. 본문 추출 (우선순위별)
+                        const contentSelectors = [
+                            '.article-text',
+                            '.article-body',
+                            '.content',
+                            'article'
+                        ];
                         
-                        // 발행 시간 추출 (한겨레 특정 선택자)
-                        const timeElement = document.querySelector('li.ArticleDetailView_dateListItem__mRc3d span');
-                        const published_at = timeElement ? timeElement.textContent.trim() : '';
+                        let contentArea = null;
+                        for (const selector of contentSelectors) {
+                            contentArea = document.querySelector(selector);
+                            if (contentArea) break;
+                        }
                         
-                        return {
-                            content: content,
-                            published_at: published_at
-                        };
+                        if (contentArea) {
+                            // 광고 요소 제거
+                            const adSelectors = [
+                                '.ArticleDetailAudioPlayer_wrap__',
+                                '.ArticleDetailContent_imageContainer__',
+                                '.ArticleDetailContent_adWrap__',
+                                '.ArticleDetailContent_adFlex__',
+                                '.BaseAd_adWrapper__',
+                                '[class*="ad"]',
+                                '[class*="Ad"]'
+                            ];
+                            
+                            adSelectors.forEach(selector => {
+                                const elements = contentArea.querySelectorAll(selector);
+                                elements.forEach(el => el.remove());
+                            });
+                            
+                            // 본문 텍스트 추출
+                            const paragraphs = contentArea.querySelectorAll('p.text, p, div.text');
+                            const contentLines = [];
+                            
+                            paragraphs.forEach(p => {
+                                const text = p.textContent?.trim() || '';
+                                
+                                // 필터링: 기자 정보, 이메일, 너무 짧은 텍스트 제외
+                                if (text && 
+                                    text.length > 20 && 
+                                    !text.includes('@') && 
+                                    !text.includes('기자') &&
+                                    !text.includes('특파원') &&
+                                    !text.includes('통신원') &&
+                                    !text.match(/^\\s*$/)) {
+                                    contentLines.push(text);
+                                }
+                            });
+                            
+                            result.content = contentLines.join('\\n\\n');
+                        }
+                        
+                        return result;
                     }
                 """)
                 
-                await browser.close()
+                await page.close()
                 return content_data
                 
-        except Exception as e:
-            console.print(f"❌ 본문 추출 실패 ({url}): {e}")
-            return {"content": "", "published_at": ""}
+            except Exception as e:
+                console.print(f"❌ 본문 추출 실패 ({url}): {e}")
+                return {"content": "", "published_at": ""}
     
     async def _parse_article_data(self, article: dict, content_data: dict) -> dict:
         """기사 데이터 파싱 및 정리"""
@@ -189,30 +242,45 @@ class HaniPoliticsCollector:
             return None
     
     async def collect_articles(self, num_pages: int = 10):
-        """기사 수집"""
+        """기사 수집 - 병렬 처리로 최적화"""
         console.print(f"📄 {num_pages}개 페이지에서 기사 수집 시작...")
         
-        for page in range(1, num_pages + 1):
-            console.print(f"📄 페이지 {page}/{num_pages} 처리 중...")
-            articles = await self._get_page_articles(page)
-            self.articles.extend(articles)
+        # 병렬 처리로 페이지 수집
+        tasks = [self._get_page_articles(page) for page in range(1, num_pages + 1)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 수집
+        for i, result in enumerate(results, 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ 페이지 {i} 수집 실패: {result}")
+            else:
+                self.articles.extend(result)
+                console.print(f"✅ 페이지 {i} 수집 완료: {len(result)}개 기사")
         
         console.print(f"📊 수집 완료: {len(self.articles)}개 성공")
     
     async def collect_contents(self):
-        """기사 본문 수집"""
+        """기사 본문 수집 - 병렬 처리로 최적화"""
         console.print(f"📖 본문 수집 시작: {len(self.articles)}개 기사")
         
-        for i, article in enumerate(self.articles, 1):
-            console.print(f"📖 [{i}/{len(self.articles)}] 본문 수집 중: {article['title'][:50]}...")
-            
-            content_data = await self._extract_content(article['url'])
-            
-            # 기사 데이터에 본문과 발행시간 추가
-            article['content'] = content_data.get('content', '')
-            article['published_at'] = content_data.get('published_at', article.get('published_at', ''))
-            
-            console.print(f"✅ [{i}/{len(self.articles)}] 본문 수집 성공")
+        # 병렬 처리로 본문 수집
+        tasks = [self._extract_content(article['url']) for article in self.articles]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 처리
+        success_count = 0
+        for i, (article, result) in enumerate(zip(self.articles, results), 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ [{i}/{len(self.articles)}] 본문 수집 실패: {result}")
+                article['content'] = ''
+                article['published_at'] = article.get('published_at', '')
+            else:
+                article['content'] = result.get('content', '')
+                article['published_at'] = result.get('published_at', article.get('published_at', ''))
+                success_count += 1
+                console.print(f"✅ [{i}/{len(self.articles)}] 본문 수집 성공")
+        
+        console.print(f"📊 본문 수집 완료: {success_count}/{len(self.articles)}개 성공")
     
     async def save_articles(self):
         """기사 저장"""
@@ -284,6 +352,19 @@ class HaniPoliticsCollector:
         console.print(f"  ⚠️ 중복 스킵: {skip_count}개")
         console.print(f"  📈 성공률: {success_count/len(self.articles)*100:.1f}%")
     
+    async def cleanup(self):
+        """리소스 정리"""
+        try:
+            if self._browser:
+                await self._browser.close()
+                self._browser = None
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
+            console.print("🧹 한겨레 크롤러 리소스 정리 완료")
+        except Exception as e:
+            console.print(f"⚠️ 리소스 정리 중 오류: {str(e)[:50]}")
+    
     async def run(self, num_pages: int = 10):
         """크롤러 실행"""
         try:
@@ -308,6 +389,8 @@ class HaniPoliticsCollector:
             console.print("⏹️ 사용자에 의해 중단되었습니다")
         except Exception as e:
             console.print(f"❌ 크롤링 중 오류 발생: {str(e)}")
+        finally:
+            await self.cleanup()
 
 async def main():
     collector = HaniPoliticsCollector()

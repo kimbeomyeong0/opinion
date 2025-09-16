@@ -22,7 +22,7 @@ CRAWLER_PARAMS = {
     "naeil_politics": {"num_pages": 8},       # 160개 기사
     "pressian_politics": {"num_pages": 16},   # 160개 기사
     "hankyung_politics": {"num_pages": 4},    # 160개 기사
-    "sisain_politics": {"num_pages": 15}      # 158개 기사
+    "sisain_politics": {"num_pages": 20, "target_articles": 160}      # 최대 20페이지, 목표 160개 기사
 }
 
 # 크롤러 그룹 정의 (3단계로 확장)

@@ -194,6 +194,45 @@ class SisainPoliticsCollector:
         
         console.print(f"📊 총 {len(unique_articles)}개 기사 수집")
         return unique_articles
+
+    async def _collect_page_articles_with_target(self, client: httpx.AsyncClient, num_pages: int, target_articles: int) -> List[Dict[str, Any]]:
+        """목표 기사 수에 도달하면 중단하는 페이지별 기사 수집"""
+        all_articles = []
+        collected_count = 0
+        seen_urls = set()
+        
+        for page in range(1, num_pages + 1):
+            console.print(f"📄 페이지 {page} 수집 중...")
+            
+            try:
+                page_articles = await self._get_page_articles(client, page)
+                
+                if page_articles:
+                    # 필터링 적용 및 중복 제거
+                    for article in page_articles:
+                        if article["url"] in seen_urls:
+                            continue
+                        
+                        if not self._should_skip_article(article):
+                            seen_urls.add(article["url"])
+                            all_articles.append(article)
+                            collected_count += 1
+                            
+                            # 목표 달성 시 즉시 종료
+                            if collected_count >= target_articles:
+                                console.print(f"🎯 목표 {target_articles}개 달성! 크롤링 종료")
+                                return all_articles
+                    
+                    console.print(f"📰 페이지 {page}: {len([a for a in page_articles if a['url'] not in seen_urls and not self._should_skip_article(a)])}개 기사 수집 (총 {collected_count}개)")
+                else:
+                    console.print(f"⚠️ 페이지 {page}에서 기사를 찾을 수 없음")
+                    
+            except Exception as e:
+                console.print(f"❌ 페이지 {page} 처리 중 오류: {e}")
+                continue
+        
+        console.print(f"📊 총 {len(all_articles)}개 기사 수집 완료 (목표: {target_articles}개)")
+        return all_articles
     
     def _extract_content_text(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """시사IN 본문 텍스트 추출"""
@@ -413,17 +452,17 @@ class SisainPoliticsCollector:
                 if batch_idx < total_batches - 1:
                     await asyncio.sleep(1)
     
-    async def run(self, num_pages: int = 8):
+    async def run(self, num_pages: int = 8, target_articles: int = 160):
         """크롤링 실행"""
         try:
             if not self.initialize():
                 return
             
-            console.print(f"🚀 시사IN 정치 기사 크롤링 시작 (최대 {num_pages}페이지)")
+            console.print(f"🚀 시사IN 정치 기사 크롤링 시작 (목표: {target_articles}개)")
             
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # 기사 목록 수집
-                articles = await self._collect_page_articles_parallel(client, num_pages)
+                # 기사 목록 수집 (페이지별로 체크하며 목표 달성 시 종료)
+                articles = await self._collect_page_articles_with_target(client, num_pages, target_articles)
                 
                 if not articles:
                     console.print("❌ 수집된 기사가 없습니다")
@@ -488,7 +527,7 @@ class SisainPoliticsCollector:
 
 async def main():
     collector = SisainPoliticsCollector()
-    await collector.run(num_pages=15)  # 15페이지에서 각각 20개씩 총 300개 수집 (필터링 고려)
+    await collector.run(num_pages=20, target_articles=160)  # 최대 20페이지, 목표 160개 기사
 
 if __name__ == "__main__":
     asyncio.run(main())

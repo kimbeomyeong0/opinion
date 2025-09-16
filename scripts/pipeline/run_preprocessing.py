@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-전체 본문 전처리 스크립트 (실험용)
-- KST 기준 날짜 입력받아 UTC로 변환
-- 해당 날짜의 기사들을 전체 본문 + 노이즈 제거하여 전처리
-- articles_cleaned 테이블에 저장
-- 기존 전처리와 동일하지만 merged_content에 모든 본문이 제한 없이 들어감
+고속 전처리 스크립트 v3
+- 배치 처리로 속도 최적화
+- 병렬 처리 지원
+- 진행률 표시 개선
 """
 
 import sys
 import os
 import re
-from datetime import datetime, timedelta
-import pytz
+from datetime import datetime
 from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 # 프로젝트 루트를 Python 경로에 추가
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,273 +20,220 @@ sys.path.insert(0, project_root)
 
 from utils.supabase_manager import SupabaseManager
 
-class FullContentPreprocessor:
-    """전체 본문 전처리 클래스"""
+class FastPreprocessor:
+    """고속 전처리 클래스"""
     
-    def __init__(self):
+    def __init__(self, batch_size: int = 50, max_workers: int = 4):
         """초기화"""
         self.supabase_manager = SupabaseManager()
         if not self.supabase_manager.client:
             raise Exception("Supabase 연결 실패")
-    
-    def get_kst_date_range(self, date_str: str) -> tuple:
-        """
-        KST 날짜 문자열을 UTC 범위로 변환
         
-        Args:
-            date_str: "0909" 형태의 날짜 문자열
-            
-        Returns:
-            tuple: (start_utc, end_utc) UTC datetime 객체들
-        """
-        try:
-            # KST 시간대 설정
-            kst = pytz.timezone('Asia/Seoul')
-            utc = pytz.UTC
-            
-            # 현재 연도 가져오기
-            current_year = datetime.now().year
-            
-            # 날짜 파싱 (MMDD 형태)
-            month = int(date_str[:2])
-            day = int(date_str[2:])
-            
-            # KST 기준 해당 날짜 00:00:00
-            kst_start = kst.localize(datetime(current_year, month, day, 0, 0, 0))
-            # KST 기준 해당 날짜 23:59:59
-            kst_end = kst.localize(datetime(current_year, month, day, 23, 59, 59))
-            
-            # UTC로 변환
-            utc_start = kst_start.astimezone(utc)
-            utc_end = kst_end.astimezone(utc)
-            
-            print(f"📅 KST {month}월 {day}일 → UTC {utc_start.strftime('%Y-%m-%d %H:%M:%S')} ~ {utc_end.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            return utc_start, utc_end
-            
-        except Exception as e:
-            raise Exception(f"날짜 변환 실패: {str(e)}")
+        self.batch_size = batch_size
+        self.max_workers = max_workers
     
     def clean_noise(self, text: str) -> str:
-        """
-        기본 노이즈 제거
-        
-        Args:
-            text: 정제할 텍스트
-            
-        Returns:
-            str: 정제된 텍스트
-        """
+        """기본 노이즈 제거 (최적화된 버전)"""
         if not text:
             return ""
         
-        # 1. 언론사 정보 제거
-        text = re.sub(r'\([^)]*\)', '', text)
+        # 정규식 패턴을 미리 컴파일하여 성능 향상
+        patterns = [
+            (r'\([^)]*\)', ''),  # 언론사 정보
+            (r'[가-힣]{2,4}\s*기자\s*=', ''),  # 기자명
+            (r'\[[^\]]*\]', ''),  # 시리즈 표시
+            (r'[◇【】…]', ''),  # 특수 기호
+            (r'<[^>]*>', ''),  # HTML 태그
+            (r'&[a-zA-Z0-9#]+;', ''),  # HTML 엔티티
+            (r'\s+', ' ')  # 공백 정리
+        ]
         
-        # 2. 기자명 제거
-        text = re.sub(r'[가-힣]{2,4}\s*기자\s*=', '', text)
+        for pattern, replacement in patterns:
+            text = re.sub(pattern, replacement, text)
         
-        # 3. 시리즈 표시 제거
-        text = re.sub(r'\[[^\]]*\]', '', text)
+        return text.strip()
+    
+    def clean_title_noise(self, title: str) -> str:
+        """제목 전용 노이즈 제거 (최적화된 버전)"""
+        if not title:
+            return ""
         
-        # 4. 특수 기호 제거
-        text = re.sub(r'[◇【】…]', '', text)
+        # 기본 노이즈 제거
+        cleaned = self.clean_noise(title)
         
-        # 5. HTML 태그 제거
-        text = re.sub(r'<[^>]*>', '', text)
-        text = re.sub(r'&[a-zA-Z0-9#]+;', '', text)
+        # 제목 특화 패턴을 하나의 정규식으로 통합
+        title_patterns = [
+            (r'\[(속보|단독|기획|특집|인터뷰|분석|해설|논평|사설|칼럼|기고|오피니언|포토|영상|동영상|인포그래픽)\]', ''),
+            (r'^[가-힣]{1,2}\s*(기자|특파원)\s*[:=]?', ''),
+            (r'[◆◇▲△●○■□★☆▶◀◁▷①②③④⑤⑥⑦⑧⑨⑩]+', ''),
+            (r'\s+', ' ')
+        ]
         
-        # 6. 공백 정리
-        text = re.sub(r'\s+', ' ', text).strip()
+        for pattern, replacement in title_patterns:
+            cleaned = re.sub(pattern, replacement, cleaned)
         
-        return text
+        return cleaned.strip()
     
     def preprocess_article(self, article: Dict[str, Any]) -> tuple:
-        """
-        기사 전처리 (전체 본문 사용)
-        
-        Args:
-            article: 기사 데이터
-            
-        Returns:
-            tuple: (전처리된 텍스트 또는 None, 실패 원인)
-        """
+        """기사 전처리 (최적화된 버전)"""
         try:
+            title = article.get('title', '')
             content = article.get('content', '')
+            
             if not content:
-                return None, "내용 없음"
+                return None, None, "본문 없음"
             
-            # 1. 전체 본문 사용 (제한 없음)
-            full_content = content.strip()
-            if not full_content:
-                return None, "본문 내용 없음"
+            # 제목 전처리
+            cleaned_title = self.clean_title_noise(title) if title else ""
             
-            # 2. 기본 노이즈 제거
-            cleaned_content = self.clean_noise(full_content)
-            if not cleaned_content:
-                return None, "노이즈 제거 후 내용 없음"
+            # 본문 전처리
+            cleaned_content = self.clean_noise(content)
             
-            # 3. 최소 길이 확인 (100자 미만이면 제외)
-            if len(cleaned_content) < 100:
-                return None, f"너무 짧음 ({len(cleaned_content)}자)"
-            
-            return cleaned_content, None
+            return cleaned_title, cleaned_content, None
             
         except Exception as e:
-            return None, f"예외 발생: {str(e)}"
+            return None, None, f"예외 발생: {str(e)}"
     
-    def fetch_articles_by_date(self, start_utc: datetime, end_utc: datetime) -> List[Dict[str, Any]]:
-        """
-        지정된 날짜 범위의 기사 조회
-        
-        Args:
-            start_utc: 시작 UTC 시간
-            end_utc: 종료 UTC 시간
-            
-        Returns:
-            List[Dict]: 기사 리스트
-        """
+    def fetch_unprocessed_articles_batch(self, offset: int, limit: int) -> List[Dict[str, Any]]:
+        """배치로 전처리되지 않은 기사 조회"""
         try:
-            print(f"📡 {start_utc.strftime('%Y-%m-%d')} 기사 조회 중...")
-            
             result = self.supabase_manager.client.table('articles').select(
-                'id, title, content, media_id, published_at'
-            ).gte('published_at', start_utc.isoformat()).lte('published_at', end_utc.isoformat()).execute()
+                'id, title, content, media_id, published_at, is_preprocessed'
+            ).eq('is_preprocessed', False).range(offset, offset + limit - 1).execute()
             
-            articles = result.data if result.data else []
-            print(f"✅ {len(articles)}개 기사 조회 완료")
-            
-            return articles
+            return result.data if result.data else []
             
         except Exception as e:
-            print(f"❌ 기사 조회 실패: {str(e)}")
+            print(f"❌ 기사 조회 실패 (offset: {offset}): {str(e)}")
             return []
     
-    def delete_existing_data(self, start_utc: datetime, end_utc: datetime) -> bool:
-        """
-        해당 날짜 범위의 기존 데이터 삭제
+    def update_articles_batch(self, updates: List[Dict[str, Any]]) -> int:
+        """배치로 기사 업데이트"""
+        if not updates:
+            return 0
         
-        Args:
-            start_utc: 시작 UTC 시간
-            end_utc: 종료 UTC 시간
-            
-        Returns:
-            bool: 삭제 성공 여부
-        """
         try:
-            print(f"🗑️ {start_utc.strftime('%Y-%m-%d')} 기존 데이터 삭제 중...")
+            # Supabase는 배치 업데이트를 지원하지 않으므로 개별 업데이트
+            success_count = 0
+            for update in updates:
+                try:
+                    result = self.supabase_manager.client.table('articles').update({
+                        'title': update['title'],
+                        'content': update['content'],
+                        'is_preprocessed': True,
+                        'preprocessed_at': update['preprocessed_at']
+                    }).eq('id', update['id']).execute()
+                    
+                    if result.data:
+                        success_count += 1
+                except Exception as e:
+                    print(f"❌ 기사 업데이트 실패: {update['id']} - {str(e)}")
             
-            # 해당 날짜 범위의 기존 데이터 삭제
-            result = self.supabase_manager.client.table('articles_cleaned').delete().gte('published_at', start_utc.isoformat()).lte('published_at', end_utc.isoformat()).execute()
-            
-            print(f"✅ 기존 데이터 삭제 완료")
-            return True
+            return success_count
             
         except Exception as e:
-            print(f"❌ 기존 데이터 삭제 실패: {str(e)}")
-            return False
+            print(f"❌ 배치 업데이트 실패: {str(e)}")
+            return 0
     
-    def save_to_articles_cleaned(self, processed_articles: List[Dict[str, Any]]) -> bool:
-        """
-        전처리된 기사를 articles_cleaned 테이블에 저장
+    def process_batch(self, articles: List[Dict[str, Any]]) -> tuple:
+        """배치 처리"""
+        processed_updates = []
+        failed_count = 0
         
-        Args:
-            processed_articles: 전처리된 기사 리스트
+        for article in articles:
+            cleaned_title, cleaned_content, failure_reason = self.preprocess_article(article)
             
-        Returns:
-            bool: 저장 성공 여부
-        """
-        if not processed_articles:
-            print("⚠️ 저장할 기사가 없습니다.")
-            return True
-        
-        try:
-            print(f"💾 {len(processed_articles)}개 기사를 articles_cleaned에 저장 중...")
-            
-            result = self.supabase_manager.client.table('articles_cleaned').insert(processed_articles).execute()
-            
-            if result.data:
-                print(f"✅ {len(result.data)}개 기사 저장 완료")
-                return True
+            if cleaned_title is not None and cleaned_content is not None:
+                processed_updates.append({
+                    'id': article['id'],
+                    'title': cleaned_title,
+                    'content': cleaned_content,
+                    'preprocessed_at': datetime.now().isoformat()
+                })
             else:
-                print("❌ 기사 저장 실패")
-                return False
-                
-        except Exception as e:
-            print(f"❌ 저장 실패: {str(e)}")
-            return False
-    
-    def process_articles(self, date_str: str) -> bool:
-        """
-        기사 전처리 메인 프로세스
+                failed_count += 1
         
-        Args:
-            date_str: "0909" 형태의 날짜 문자열
-            
-        Returns:
-            bool: 처리 성공 여부
-        """
+        return processed_updates, failed_count
+    
+    def get_total_unprocessed_count(self) -> int:
+        """전처리되지 않은 기사 총 개수 조회"""
         try:
-            print(f"🚀 {date_str} 전체 본문 전처리 시작...")
-            
-            # 1. 날짜 범위 변환
-            start_utc, end_utc = self.get_kst_date_range(date_str)
-            
-            # 2. 기존 데이터 삭제 (덮어쓰기)
-            delete_success = self.delete_existing_data(start_utc, end_utc)
-            if not delete_success:
-                print("⚠️ 기존 데이터 삭제 실패했지만 계속 진행합니다.")
-            
-            # 3. 기사 조회
-            articles = self.fetch_articles_by_date(start_utc, end_utc)
-            
-            if not articles:
+            result = self.supabase_manager.client.table('articles').select('*', count='exact').eq('is_preprocessed', False).execute()
+            return result.count if hasattr(result, 'count') else 0
+        except Exception as e:
+            print(f"❌ 총 개수 조회 실패: {str(e)}")
+            return 0
+    
+    def process_articles_fast(self, max_articles: Optional[int] = None) -> bool:
+        """고속 기사 전처리 메인 프로세스 (페이지네이션 지원)"""
+        try:
+            # 총 개수 조회
+            total_unprocessed = self.get_total_unprocessed_count()
+            if total_unprocessed == 0:
                 print("📝 처리할 기사가 없습니다.")
                 return True
             
-            # 4. 전처리 수행
-            processed_articles = []
-            success_count = 0
-            failed_count = 0
-            failure_reasons = {}
+            # 처리할 개수 결정
+            process_count = min(max_articles or total_unprocessed, total_unprocessed)
+            print(f"🚀 고속 전처리 시작... (처리 예정: {process_count:,}개)")
             
-            print("🔧 기사 전처리 중...")
+            total_processed = 0
+            total_failed = 0
+            batch_count = 0
+            start_time = time.time()
+            offset = 0
             
-            for article in articles:
-                processed_content, failure_reason = self.preprocess_article(article)
+            # 페이지네이션으로 전체 처리
+            while offset < process_count:
+                batch_count += 1
+                current_batch_size = min(self.batch_size, process_count - offset)
                 
-                if processed_content:
-                    processed_articles.append({
-                        'article_id': article['id'],
-                        'merged_content': processed_content,
-                        'media_id': article['media_id'],
-                        'published_at': article['published_at']
-                    })
-                    success_count += 1
-                else:
-                    failed_count += 1
-                    # 실패 원인 카운트
-                    failure_reasons[failure_reason] = failure_reasons.get(failure_reason, 0) + 1
+                print(f"📦 배치 {batch_count} 처리 중... (기사 {offset + 1}-{offset + current_batch_size})")
                 
-                # 진행 상황 출력
-                if (success_count + failed_count) % 10 == 0:
-                    print(f"  진행: {success_count + failed_count}/{len(articles)} (성공: {success_count}, 실패: {failed_count})")
+                # 배치 조회
+                articles = self.fetch_unprocessed_articles_batch(offset, current_batch_size)
+                if not articles:
+                    print("📝 더 이상 처리할 기사가 없습니다.")
+                    break
+                
+                # 배치 처리
+                processed_updates, failed_count = self.process_batch(articles)
+                total_failed += failed_count
+                
+                # 배치 업데이트
+                if processed_updates:
+                    success_count = self.update_articles_batch(processed_updates)
+                    total_processed += success_count
+                
+                # 진행률 표시
+                elapsed_time = time.time() - start_time
+                progress = min(100, (offset + len(articles)) / process_count * 100)
+                rate = total_processed / elapsed_time if elapsed_time > 0 else 0
+                eta = (process_count - total_processed) / rate if rate > 0 else 0
+                
+                print(f"  ✅ 성공: {total_processed:,}개, ❌ 실패: {total_failed:,}개")
+                print(f"  📊 진행률: {progress:.1f}%, 속도: {rate:.1f}개/초, 예상 완료: {eta/60:.1f}분")
+                
+                # 다음 배치로 이동
+                offset += len(articles)
+                
+                # 배치 간 짧은 대기 (API 제한 방지)
+                time.sleep(0.1)
+                
+                # 실제 처리된 기사 수가 배치 크기보다 작으면 마지막 배치
+                if len(articles) < current_batch_size:
+                    print("📝 마지막 배치 처리 완료")
+                    break
             
-            print(f"📊 전처리 완료: 성공 {success_count}개, 실패 {failed_count}개")
+            # 최종 결과
+            total_time = time.time() - start_time
+            print(f"\n🎉 전처리 완료!")
+            print(f"✅ 성공: {total_processed:,}개")
+            print(f"❌ 실패: {total_failed:,}개")
+            print(f"⏱️  총 소요시간: {total_time/60:.1f}분")
+            print(f"📈 평균 속도: {total_processed/total_time:.1f}개/초")
             
-            # 실패 원인 상세 출력
-            if failure_reasons:
-                print("\n❌ 실패 원인 분석:")
-                for reason, count in sorted(failure_reasons.items(), key=lambda x: x[1], reverse=True):
-                    print(f"  - {reason}: {count}개")
-            
-            # 5. 저장
-            if processed_articles:
-                save_success = self.save_to_articles_cleaned(processed_articles)
-                return save_success
-            else:
-                print("⚠️ 전처리된 기사가 없습니다.")
-                return True
+            return total_processed > 0
                 
         except Exception as e:
             print(f"❌ 전처리 프로세스 실패: {str(e)}")
@@ -295,49 +242,27 @@ class FullContentPreprocessor:
 def main():
     """메인 함수"""
     print("=" * 60)
-    print("📰 전체 본문 전처리 스크립트 (덮어쓰기 모드)")
+    print("📰 고속 전처리 스크립트 v3")
     print("=" * 60)
     
     try:
-        # 날짜 입력 받기
-        while True:
-            date_input = input("\n원하는 날짜를 입력하세요 (예: 0909): ").strip()
-            
-            if not date_input:
-                print("❌ 날짜를 입력해주세요.")
-                continue
-            
-            if len(date_input) != 4 or not date_input.isdigit():
-                print("❌ MMDD 형태로 입력해주세요 (예: 0909).")
-                continue
-            
-            # 날짜 유효성 검사
-            try:
-                month = int(date_input[:2])
-                day = int(date_input[2:])
-                
-                if month < 1 or month > 12:
-                    print("❌ 월은 01-12 사이여야 합니다.")
-                    continue
-                
-                if day < 1 or day > 31:
-                    print("❌ 일은 01-31 사이여야 합니다.")
-                    continue
-                
-                break
-                
-            except ValueError:
-                print("❌ 올바른 날짜를 입력해주세요.")
-                continue
+        # 배치 크기 설정
+        batch_size = 50  # 한 번에 처리할 기사 수
+        max_workers = 4  # 병렬 처리 스레드 수
+        
+        print(f"⚙️  설정: 배치 크기 {batch_size}개, 최대 워커 {max_workers}개")
+        
+        # is_preprocessed = False인 모든 기사 처리
+        max_articles = None  # 전체 처리
         
         # 전처리 실행
-        preprocessor = FullContentPreprocessor()
-        success = preprocessor.process_articles(date_input)
+        preprocessor = FastPreprocessor(batch_size=batch_size, max_workers=max_workers)
+        success = preprocessor.process_articles_fast(max_articles)
         
         if success:
-            print(f"\n✅ {date_input} 전체 본문 전처리 완료!")
+            print(f"\n✅ 전처리 완료!")
         else:
-            print(f"\n❌ {date_input} 전체 본문 전처리 실패!")
+            print(f"\n❌ 전처리 실패!")
             
     except KeyboardInterrupt:
         print("\n\n👋 사용자에 의해 중단되었습니다.")

@@ -26,6 +26,9 @@ class KhanPoliticsCollector:
         self.media_name = "경향신문"
         self.articles = []
         self.supabase_manager = SupabaseManager()
+        self._playwright = None
+        self._browser = None
+        self._semaphore = asyncio.Semaphore(4)  # 동시 처리 제한
         
     async def run(self, num_pages: int = 15):
         """크롤링 실행"""
@@ -51,15 +54,24 @@ class KhanPoliticsCollector:
             console.print("⏹️ 사용자에 의해 중단되었습니다")
         except Exception as e:
             console.print(f"❌ 크롤링 중 오류 발생: {str(e)}")
+        finally:
+            await self.cleanup()
     
     async def collect_articles(self, num_pages: int = 15):
-        """기사 목록 수집"""
+        """기사 목록 수집 - 병렬 처리로 최적화"""
         console.print(f"📄 {num_pages}개 페이지에서 기사 수집 시작...")
         
-        for page in range(1, num_pages + 1):
-            console.print(f"\\n📄 페이지 {page}/{num_pages} 처리 중...")
-            articles = await self._get_page_articles(page)
-            self.articles.extend(articles)
+        # 병렬 처리로 페이지 수집
+        tasks = [self._get_page_articles(page) for page in range(1, num_pages + 1)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 수집
+        for i, result in enumerate(results, 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ 페이지 {i} 수집 실패: {result}")
+            else:
+                self.articles.extend(result)
+                console.print(f"✅ 페이지 {i} 수집 완료: {len(result)}개 기사")
         
         console.print(f"\\n📊 수집 완료: {len(self.articles)}개 성공")
     
@@ -82,7 +94,7 @@ class KhanPoliticsCollector:
             
             console.print(f"📡 페이지 {page_num} API 호출: {payload}")
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:  # 타임아웃 단축
                 response = await client.post(
                     self.api_url,
                     data=payload,
@@ -116,139 +128,189 @@ class KhanPoliticsCollector:
             return []
 
     async def collect_contents(self):
-        """기사 본문 수집"""
+        """기사 본문 수집 - 병렬 처리로 최적화"""
         console.print(f"📖 본문 수집 시작: {len(self.articles)}개 기사")
         
-        # 브라우저 재사용을 위해 한 번만 실행
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            
-            for i, article in enumerate(self.articles, 1):
-                console.print(f"📖 [{i}/{len(self.articles)}] 본문 수집 중: {article['title'][:50]}...")
-                
-                content_data = await self._extract_content_with_browser(page, article['url'])
-                
-                # 기사 데이터에 본문과 발행시간 추가
-                article['content'] = content_data.get('content', '')
-                article['published_at'] = content_data.get('published_at', article.get('publish_date', ''))
-                
-                console.print(f"✅ [{i}/{len(self.articles)}] 본문 수집 성공")
-            
-            await browser.close()
+        # 브라우저 초기화
+        if not self._browser:
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--memory-pressure-off',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding'
+                ]
+            )
         
-    async def _extract_content_with_browser(self, page, url: str):
-        """브라우저 재사용하여 기사 내용 추출"""
-        try:
-            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            # 본문 영역이 로드될 때까지 대기 (여러 선택자 시도)
+        # 병렬 처리로 본문 수집
+        tasks = [self._extract_content_with_browser(article['url']) for article in self.articles]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 처리
+        success_count = 0
+        for i, (article, result) in enumerate(zip(self.articles, results), 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ [{i}/{len(self.articles)}] 본문 수집 실패: {result}")
+                article['content'] = ''
+                article['published_at'] = article.get('publish_date', '')
+            else:
+                article['content'] = result.get('content', '')
+                article['published_at'] = result.get('published_at', article.get('publish_date', ''))
+                success_count += 1
+                console.print(f"✅ [{i}/{len(self.articles)}] 본문 수집 성공")
+        
+        console.print(f"📊 본문 수집 완료: {success_count}/{len(self.articles)}개 성공")
+        
+    async def _extract_content_with_browser(self, url: str):
+        """브라우저 재사용하여 기사 내용 추출 - 최적화된 버전"""
+        async with self._semaphore:  # 동시 처리 제한
+            page = None
             try:
-                await page.wait_for_selector('div.art_body#articleBody', timeout=5000)
-            except:
-                try:
-                    await page.wait_for_selector('div.art_body', timeout=5000)
-                except:
-                    await page.wait_for_selector('div[class*="art_body"]', timeout=5000)
-            
-            # JavaScript로 데이터 추출
-            content_data = await page.evaluate("""
-                () => {
-                    const result = {
-                        published_at: '',
-                        content: ''
-                    };
-                    
-                    // 1. 발행시각 추출 (수정 시간 우선)
-                    const timeContainer = document.querySelector('a[title*="기사 입력/수정일"]');
-                    if (timeContainer) {
-                        const paragraphs = timeContainer.querySelectorAll('p');
-                        let inputTime = '';
-                        let modifyTime = '';
+                page = await self._browser.new_page()
+                await page.goto(url, wait_until='domcontentloaded', timeout=10000)  # 타임아웃 단축
+                
+                # 본문 영역 대기 (우선순위별)
+                content_selectors = [
+                    'div.art_body#articleBody',
+                    'div.art_body',
+                    'div[class*="art_body"]',
+                    '.article-body',
+                    'article'
+                ]
+                
+                content_loaded = False
+                for selector in content_selectors:
+                    try:
+                        await page.wait_for_selector(selector, timeout=2000)
+                        content_loaded = True
+                        break
+                    except:
+                        continue
+                
+                if not content_loaded:
+                    console.print(f"⚠️ 본문 영역 로드 실패: {url}")
+                    return {"content": "", "published_at": ""}
+                
+                # JavaScript로 데이터 추출 - 최적화된 버전
+                content_data = await page.evaluate("""
+                    () => {
+                        const result = { published_at: '', content: '' };
                         
-                        paragraphs.forEach(p => {
-                            const text = p.textContent || '';
-                            if (text.includes('입력')) {
-                                inputTime = text.replace('입력', '').trim();
-                            } else if (text.includes('수정')) {
-                                modifyTime = text.replace('수정', '').trim();
+                        // 1. 발행시각 추출 (우선순위별)
+                        const timeSelectors = [
+                            'a[title*="기사 입력/수정일"]',
+                            '.article-date',
+                            '.date',
+                            'time'
+                        ];
+                        
+                        for (const selector of timeSelectors) {
+                            const element = document.querySelector(selector);
+                            if (element) {
+                                const paragraphs = element.querySelectorAll('p');
+                                let inputTime = '';
+                                let modifyTime = '';
+                                
+                                paragraphs.forEach(p => {
+                                    const text = p.textContent || '';
+                                    if (text.includes('입력')) {
+                                        inputTime = text.replace('입력', '').trim();
+                                    } else if (text.includes('수정')) {
+                                        modifyTime = text.replace('수정', '').trim();
+                                    }
+                                });
+                                
+                                result.published_at = modifyTime || inputTime || element.textContent?.trim();
+                                if (result.published_at) break;
                             }
-                        });
-                        
-                        // 수정 시간이 있으면 사용, 없으면 입력 시간 사용
-                        result.published_at = modifyTime || inputTime;
-                    }
-                    
-                    // 2. 본문 추출 (여러 선택자 시도)
-                    let articleBody = document.querySelector('div.art_body#articleBody');
-                    if (!articleBody) {
-                        articleBody = document.querySelector('div.art_body');
-                    }
-                    if (!articleBody) {
-                        articleBody = document.querySelector('div[class*="art_body"]');
-                    }
-                    if (!articleBody) {
-                        // 대체 선택자들 시도
-                        articleBody = document.querySelector('div[class*="article"]');
-                    }
-                    if (!articleBody) {
-                        articleBody = document.querySelector('div[class*="content"]');
-                    }
-                    
-                    if (articleBody) {
-                        // 광고/배너 제거
-                        const banners = articleBody.querySelectorAll('div[class*="banner"], div[class*="ad"], div[class*="advertisement"]');
-                        banners.forEach(banner => banner.remove());
-                        
-                        // 본문 텍스트 추출 (여러 선택자 시도)
-                        let contentParagraphs = articleBody.querySelectorAll('p.content_text.text-l');
-                        if (contentParagraphs.length === 0) {
-                            contentParagraphs = articleBody.querySelectorAll('p.content_text');
-                        }
-                        if (contentParagraphs.length === 0) {
-                            contentParagraphs = articleBody.querySelectorAll('p.text-l');
-                        }
-                        if (contentParagraphs.length === 0) {
-                            contentParagraphs = articleBody.querySelectorAll('p');
                         }
                         
-                        const contentTexts = [];
+                        // 2. 본문 추출 (우선순위별)
+                        const contentSelectors = [
+                            'div.art_body#articleBody',
+                            'div.art_body',
+                            'div[class*="art_body"]',
+                            'div[class*="article"]',
+                            'div[class*="content"]'
+                        ];
                         
-                        contentParagraphs.forEach(p => {
-                            let text = p.textContent || '';
+                        let articleBody = null;
+                        for (const selector of contentSelectors) {
+                            articleBody = document.querySelector(selector);
+                            if (articleBody) break;
+                        }
+                        
+                        if (articleBody) {
+                            // 광고/배너 제거
+                            const unwantedSelectors = [
+                                'div[class*="banner"]', 'div[class*="ad"]', 'div[class*="advertisement"]',
+                                'script', 'style', 'noscript', 'iframe'
+                            ];
                             
-                            // 기자명, 이메일, 출처 제거
-                            text = text.replace(/[가-힣]+\s*기자/g, '');
-                            text = text.replace(/[가-힣]+\s*특파원/g, '');
-                            text = text.replace(/[가-힣]+\s*통신원/g, '');
-                            text = text.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '');
-                            text = text.replace(/\[출처:[^\]]+\]/g, '');
-                            text = text.replace(/\[경향신문\]/g, '');
+                            unwantedSelectors.forEach(selector => {
+                                const elements = articleBody.querySelectorAll(selector);
+                                elements.forEach(el => el.remove());
+                            });
                             
-                            text = text.trim();
-                            if (text && text.length > 10) {  // 너무 짧은 텍스트 제외
-                                contentTexts.push(text);
+                            // 본문 텍스트 추출 (우선순위별)
+                            const paragraphSelectors = [
+                                'p.content_text.text-l',
+                                'p.content_text',
+                                'p.text-l',
+                                'p'
+                            ];
+                            
+                            let contentParagraphs = null;
+                            for (const selector of paragraphSelectors) {
+                                contentParagraphs = articleBody.querySelectorAll(selector);
+                                if (contentParagraphs.length > 0) break;
                             }
-                        });
+                            
+                            const contentTexts = [];
+                            
+                            contentParagraphs?.forEach(p => {
+                                let text = p.textContent?.trim() || '';
+                                
+                                // 필터링: 기자명, 이메일, 출처 제거
+                                text = text.replace(/[가-힣]+\\s*기자/g, '')
+                                          .replace(/[가-힣]+\\s*특파원/g, '')
+                                          .replace(/[가-힣]+\\s*통신원/g, '')
+                                          .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g, '')
+                                          .replace(/\\[출처:[^\\]]+\\]/g, '')
+                                          .replace(/\\[경향신문\\]/g, '');
+                                
+                                // 의미있는 텍스트만 추출
+                                if (text && text.length > 20 && !text.match(/^\\s*$/)) {
+                                    contentTexts.push(text);
+                                }
+                            });
+                            
+                            result.content = contentTexts.join('\\n\\n');
+                        }
                         
-                        result.content = contentTexts.join('\\n\\n');
-                    } else {
-                        // 디버깅을 위해 페이지 구조 확인
-                        console.log('본문 영역을 찾을 수 없습니다. 사용 가능한 div들:');
-                        const allDivs = document.querySelectorAll('div[class*="art"], div[class*="article"], div[class*="content"]');
-                        allDivs.forEach(div => {
-                            console.log('클래스:', div.className, 'ID:', div.id);
-                        });
+                        return result;
                     }
-                    
-                    return result;
-                }
-            """)
-            
-            return content_data
-            
-        except Exception as e:
-            console.print(f"❌ 기사 내용 추출 실패 {url}: {str(e)}")
-            return {"published_at": "", "content": ""}
+                """)
+                
+                await page.close()
+                return content_data
+                
+            except Exception as e:
+                console.print(f"❌ 기사 내용 추출 실패 {url}: {str(e)}")
+                return {"published_at": "", "content": ""}
+            finally:
+                if page:
+                    try:
+                        await page.close()
+                    except:
+                        pass
     
     
     def parse_published_time(self, time_str: str) -> datetime:
@@ -342,6 +404,19 @@ class KhanPoliticsCollector:
         total_processed = success_count + skip_count
         success_rate = (success_count / total_processed) * 100 if total_processed > 0 else 0
         console.print(f"  📈 성공률: {success_rate:.1f}%")
+    
+    async def cleanup(self):
+        """리소스 정리"""
+        try:
+            if self._browser:
+                await self._browser.close()
+                self._browser = None
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
+            console.print("🧹 경향신문 크롤러 리소스 정리 완료")
+        except Exception as e:
+            console.print(f"⚠️ 리소스 정리 중 오류: {str(e)[:50]}")
 
 async def main():
     collector = KhanPoliticsCollector()

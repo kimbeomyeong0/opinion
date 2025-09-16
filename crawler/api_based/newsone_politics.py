@@ -37,41 +37,40 @@ class NewsonePoliticsCollector:
         self.articles: List[Dict] = []
         self._playwright = None
         self._browser = None
+        self._semaphore = asyncio.Semaphore(5)  # 동시 처리 제한 증가
 
     async def _get_politics_articles(self, total_limit: int = 150) -> List[Dict]:
-        """정치 섹션 기사 목록 수집 (페이지네이션 지원)"""
+        """정치 섹션 기사 목록 수집 - 병렬 처리로 최적화"""
         console.print(f"🔌 뉴스원 정치 섹션 기사 수집 시작 (최대 {total_limit}개)")
         
-        all_articles = []
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # start=1부터 start=15까지 각각 10개씩 수집
-            for start_page in range(1, 16):  # 1부터 15까지
-                if len(all_articles) >= total_limit:
-                    break
-                    
-                try:
-                    params = {
-                        "start": start_page,
-                        "limit": 10  # 각 페이지에서 10개씩
-                    }
-                    
-                    console.print(f"📡 API 호출: {self.api_url} (start={start_page}, limit=10)")
+        # 병렬 API 호출을 위한 태스크 생성
+        async def fetch_page(start_page: int) -> List[Dict]:
+            try:
+                params = {"start": start_page, "limit": 10}
+                async with httpx.AsyncClient(timeout=5.0) as client:  # 타임아웃 단축
                     resp = await client.get(self.api_url, params=params)
                     resp.raise_for_status()
                     data = resp.json()
-                    
                     console.print(f"📊 API 응답 (start={start_page}): {len(data)}개 기사 수신")
-                    all_articles.extend(data)
-                    
-                    # 페이지 간 짧은 대기 (API 부하 방지)
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    console.print(f"❌ API 호출 오류 (start={start_page}): {e}")
-                    continue
+                    return data
+            except Exception as e:
+                console.print(f"❌ API 호출 오류 (start={start_page}): {e}")
+                return []
+        
+        # 병렬 처리로 15개 페이지 동시 요청
+        tasks = [fetch_page(start_page) for start_page in range(1, 16)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 수집
+        all_articles = []
+        for i, result in enumerate(results, 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ 페이지 {i} 처리 실패: {result}")
+            else:
+                all_articles.extend(result)
         
         console.print(f"📈 총 수집된 기사: {len(all_articles)}개")
-        return all_articles
+        return all_articles[:total_limit]  # 제한 적용
 
     def _parse_article_data(self, article_data: Dict) -> Optional[Dict]:
         """API 응답 데이터 파싱"""
@@ -156,94 +155,141 @@ class NewsonePoliticsCollector:
         console.print(f"📊 수집 완료: {success_count}/{len(articles_data)}개 성공")
 
     async def _extract_content(self, url: str) -> str:
-        """Playwright로 본문 전문 추출"""
-        page = None
-        try:
-            if not self._browser:
-                self._playwright = await async_playwright().start()
-                self._browser = await self._playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--no-sandbox', 
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu',
-                        '--disable-web-security',
-                        '--disable-features=VizDisplayCompositor',
-                        '--memory-pressure-off'
-                    ]
-                )
-
-            page = await self._browser.new_page()
-            await page.set_viewport_size({"width": 1280, "height": 720})
-            await page.goto(url, wait_until="domcontentloaded", timeout=10000)
-
-            # 뉴스원 본문 추출
-            content = ""
-            
+        """Playwright로 본문 전문 추출 - 최적화된 버전"""
+        async with self._semaphore:  # 동시 처리 제한
+            page = None
             try:
-                content = await page.evaluate('''() => {
-                    const selectors = [
-                        'div.article-body p',
-                        'div#article-body p',
-                        'section.article-body p',
-                        'article.article-body p',
-                        '.story-news p',
-                        '.article-content p',
-                        'main p',
-                        'article p'
+                # 브라우저 재사용 - 한 번만 초기화
+                if not self._browser:
+                    self._playwright = await async_playwright().start()
+                    self._browser = await self._playwright.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--no-sandbox', 
+                            '--disable-dev-shm-usage',
+                            '--disable-gpu',
+                            '--disable-web-security',
+                            '--disable-features=VizDisplayCompositor',
+                            '--memory-pressure-off',
+                            '--disable-background-timer-throttling',
+                            '--disable-backgrounding-occluded-windows',
+                            '--disable-renderer-backgrounding'
+                        ]
+                    )
+
+                page = await self._browser.new_page()
+                await page.set_viewport_size({"width": 1280, "height": 720})
+                await page.goto(url, wait_until="domcontentloaded", timeout=5000)  # 타임아웃 단축
+
+                # 뉴스원 본문 추출
+                content = ""
+                
+                try:
+                    content = await page.evaluate('''() => {
+                    const result = { content: '', success: false };
+                    
+                    // 우선순위별 선택자 (뉴스원 특화)
+                    const contentSelectors = [
+                        'div.article-body',
+                        'div#article-body', 
+                        'section.article-body',
+                        'article.article-body',
+                        '.story-news',
+                        '.article-content',
+                        'main',
+                        'article'
                     ];
                     
-                    for (const selector of selectors) {
-                        const paragraphs = document.querySelectorAll(selector);
-                        if (paragraphs.length > 0) {
-                            const texts = Array.from(paragraphs)
-                                .map(p => p.textContent.trim())
-                                .filter(text => text.length > 20)
-                                .slice(0, 20);
+                    let contentArea = null;
+                    for (const selector of contentSelectors) {
+                        contentArea = document.querySelector(selector);
+                        if (contentArea) break;
+                    }
+                    
+                    if (contentArea) {
+                        // 광고 및 불필요한 요소 제거
+                        const unwantedSelectors = [
+                            '.ad', '.advertisement', '.banner',
+                            '[class*="ad"]', '[id*="ad"]',
+                            '.social-share', '.related-articles',
+                            'script', 'style', 'noscript'
+                        ];
+                        
+                        unwantedSelectors.forEach(selector => {
+                            const elements = contentArea.querySelectorAll(selector);
+                            elements.forEach(el => el.remove());
+                        });
+                        
+                        // 본문 텍스트 추출
+                        const paragraphs = contentArea.querySelectorAll('p, div.text, span.text');
+                        const texts = [];
+                        
+                        paragraphs.forEach(p => {
+                            const text = p.textContent?.trim() || '';
                             
-                            if (texts.length > 0) {
-                                return texts.join('\\n\\n');
+                            // 필터링: 의미있는 텍스트만 추출
+                            if (text && 
+                                text.length > 30 && 
+                                !text.includes('@') && 
+                                !text.includes('기자') &&
+                                !text.includes('특파원') &&
+                                !text.includes('통신원') &&
+                                !text.match(/^\\s*$/) &&
+                                !text.match(/^[\\d\\s\\.:-]+$/)) {  // 시간/날짜 형식 제외
+                                texts.push(text);
                             }
+                        });
+                        
+                        if (texts.length > 0) {
+                            result.content = texts.join('\\n\\n');
+                            result.success = true;
                         }
                     }
                     
-                    return "";
+                    return result.content;
                 }''')
                 
-                if content and len(content.strip()) > 50:
+                    if content and len(content.strip()) > 50:
+                        return content.strip()
+                        
+                except Exception as e:
+                    console.print(f"⚠️ JavaScript 본문 추출 실패: {str(e)[:50]}")
+                
                     return content.strip()
                     
             except Exception as e:
-                console.print(f"⚠️ JavaScript 본문 추출 실패: {str(e)[:50]}")
-            
-            return content.strip()
-            
-        except Exception as e:
-            console.print(f"❌ 본문 추출 실패 ({url[:50]}...): {str(e)[:50]}")
-            return ""
-        finally:
-            if page:
-                try:
-                    await page.close()
-                except:
-                    pass
+                console.print(f"❌ 본문 추출 실패 ({url[:50]}...): {str(e)[:50]}")
+                return ""
+            finally:
+                if page:
+                    try:
+                        await page.close()
+                    except:
+                        pass
 
     async def collect_contents(self):
-        """본문 전문 수집"""
+        """본문 전문 수집 - 병렬 처리로 최적화"""
         if not self.articles:
             return
 
         console.print(f"📖 본문 수집 시작: {len(self.articles)}개 기사")
         
+        # 병렬 처리로 본문 수집
+        tasks = [self._extract_content(art["url"]) for art in self.articles]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 처리
         success_count = 0
-        for i, art in enumerate(self.articles, 1):
-            content = await self._extract_content(art["url"])
-            if content:
-                self.articles[i-1]["content"] = content
+        for i, (article, result) in enumerate(zip(self.articles, results), 1):
+            if isinstance(result, Exception):
+                console.print(f"❌ [{i}/{len(self.articles)}] 본문 수집 실패: {result}")
+                article["content"] = ""
+            elif result and len(result.strip()) > 50:
+                article["content"] = result.strip()
                 success_count += 1
                 console.print(f"✅ [{i}/{len(self.articles)}] 본문 수집 성공")
             else:
-                console.print(f"⚠️ [{i}/{len(self.articles)}] 본문 수집 실패")
+                console.print(f"⚠️ [{i}/{len(self.articles)}] 본문 수집 실패 (내용 부족)")
 
         console.print(f"✅ 본문 수집 완료: {success_count}/{len(self.articles)}개 성공")
 
