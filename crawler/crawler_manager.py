@@ -20,6 +20,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 설정 및 크롤러 모듈들 import
 from config.crawler_config import CRAWLER_PARAMS, CRAWLER_GROUPS, PLAYWRIGHT_CRAWLERS, STAGE_DELAYS, RETRY_CONFIG
+# 기존 크롤러들
 from .html_parsing.ohmynews_politics import OhmyNewsPoliticsCollector
 from .html_parsing.yonhap_politics import YonhapPoliticsCollector
 from .api_based.hani_politics import HaniPoliticsCollector
@@ -29,6 +30,14 @@ from .html_parsing.donga_politics import DongaPoliticsCollector
 from .html_parsing.joongang_politics import JoongangPoliticsCollector
 from .html_parsing.newsis_politics import NewsisPoliticsCollector
 from .api_based.chosun_politics import ChosunPoliticsCollector
+
+# 새로운 진보 성향 크롤러들
+from .hybrid.segye_politics import SegyePoliticsCollector
+from .html_parsing.munhwa_politics import MunhwaPoliticsCollector
+from .html_parsing.naeil_politics import NaeilPoliticsCollector
+from .html_parsing.pressian_politics import PressianPoliticsCollector
+from .html_parsing.hankyung_politics import HankyungPoliticsCollector
+from .html_parsing.sisain_politics import SisainPoliticsCollector
 
 console = Console()
 KST = pytz.timezone("Asia/Seoul")
@@ -70,6 +79,7 @@ class CrawlerManager:
         
         # 크롤러 클래스 매핑
         self.crawler_classes = {
+            # 기존 크롤러들
             "ohmynews_politics": OhmyNewsPoliticsCollector,
             "yonhap_politics": YonhapPoliticsCollector,
             "hani_politics": HaniPoliticsCollector,
@@ -79,6 +89,14 @@ class CrawlerManager:
             "joongang_politics": JoongangPoliticsCollector,
             "newsis_politics": NewsisPoliticsCollector,
             "chosun_politics": ChosunPoliticsCollector,
+            
+            # 새로운 진보 성향 크롤러들
+            "segye_politics": SegyePoliticsCollector,
+            "munhwa_politics": MunhwaPoliticsCollector,
+            "naeil_politics": NaeilPoliticsCollector,
+            "pressian_politics": PressianPoliticsCollector,
+            "hankyung_politics": HankyungPoliticsCollector,
+            "sisain_politics": SisainPoliticsCollector,
         }
         
         # 설정에서 크롤러 그룹 및 설정 가져오기
@@ -150,10 +168,30 @@ class CrawlerManager:
                 status = "✅ 성공" if result.status == "success" else "❌ 실패"
                 console.print(f"{status} {result.crawler_name} - {result.articles_collected}개 기사")
     
+    async def run_progressive_crawlers(self):
+        """새로운 진보 성향 크롤러들 병렬 실행"""
+        stage_info = self.crawler_groups["progressive"]
+        console.print(Panel.fit(f"🎯 2단계: {stage_info['description']}", style="bold green"))
+        
+        crawlers = stage_info["crawlers"]
+        console.print(f"실행할 크롤러: {', '.join(crawlers)}")
+        
+        # 병렬 실행
+        tasks = [self.run_crawler_with_semaphore(crawler) for crawler in crawlers]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 결과 출력
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                console.print(f"❌ {crawlers[i]} 예외 발생: {result}")
+            else:
+                status = "✅ 성공" if result.status == "success" else "❌ 실패"
+                console.print(f"{status} {result.crawler_name} - {result.articles_collected}개 기사")
+    
     async def run_complex_crawlers(self):
         """복잡한 크롤러들 순차 실행 (Playwright 사용)"""
         stage_info = self.crawler_groups["complex"]
-        console.print(Panel.fit(f"🎯 2단계: {stage_info['description']}", style="bold yellow"))
+        console.print(Panel.fit(f"🎯 3단계: {stage_info['description']}", style="bold yellow"))
         
         crawlers = stage_info["crawlers"]
         console.print(f"실행할 크롤러: {', '.join(crawlers)} (순차 실행)")
@@ -221,7 +259,11 @@ class CrawlerManager:
             await self.run_simple_crawlers()
             await asyncio.sleep(STAGE_DELAYS["simple"])
             
-            # 2단계: 복잡한 크롤러들
+            # 2단계: 새로운 진보 성향 크롤러들
+            await self.run_progressive_crawlers()
+            await asyncio.sleep(STAGE_DELAYS["progressive"])
+            
+            # 3단계: 복잡한 크롤러들
             await self.run_complex_crawlers()
             await asyncio.sleep(STAGE_DELAYS["complex"])
             
