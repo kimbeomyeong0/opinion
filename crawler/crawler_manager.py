@@ -23,7 +23,7 @@ from config.crawler_config import CRAWLER_PARAMS, CRAWLER_GROUPS, PLAYWRIGHT_CRA
 # 기존 크롤러들
 from .html_parsing.ohmynews_politics import OhmyNewsPoliticsCollector
 from .html_parsing.yonhap_politics import YonhapPoliticsCollector
-from .api_based.hani_politics import HaniPoliticsCollector
+from .api_based.hani_politics import HaniPoliticsCrawler
 from .api_based.newsone_politics import NewsonePoliticsCollector
 from .api_based.khan_politics import KhanPoliticsCollector
 from .html_parsing.donga_politics import DongaPoliticsCollector
@@ -82,7 +82,7 @@ class CrawlerManager:
             # 기존 크롤러들
             "ohmynews_politics": OhmyNewsPoliticsCollector,
             "yonhap_politics": YonhapPoliticsCollector,
-            "hani_politics": HaniPoliticsCollector,
+            "hani_politics": HaniPoliticsCrawler,
             "newsone_politics": NewsonePoliticsCollector,
             "khan_politics": KhanPoliticsCollector,
             "donga_politics": DongaPoliticsCollector,

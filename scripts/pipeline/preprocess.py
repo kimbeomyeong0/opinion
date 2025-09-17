@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-고속 전처리 스크립트 v3
+고속 전처리 스크립트 v3 (키워드 기반 분류)
 - 배치 처리로 속도 최적화
-- 병렬 처리 지원
+- 키워드 기반 정치 카테고리 분류 (LLM 없음)
 - 진행률 표시 개선
 """
 
@@ -90,22 +90,21 @@ class FastPreprocessor:
         return cleaned.strip()
     
     def extract_lead_paragraph(self, content: str) -> str:
-        """기사 본문에서 첫 문단(리드문단) 추출"""
+        """기사 본문에서 첫 번째 문장을 리드문으로 추출"""
         if not content:
             return ""
         
-        # 첫 문단은 보통 두 개의 줄바꿈으로 구분됨
-        paragraphs = content.split('\n\n')
-        if paragraphs:
-            lead_paragraph = paragraphs[0].strip()
-            # 너무 긴 경우 첫 3문장으로 제한
-            sentences = lead_paragraph.split('.')
-            if len(sentences) > 3:
-                lead_paragraph = '. '.join(sentences[:3]) + '.'
-            return lead_paragraph
+        # 본문을 문장 단위로 분리 (마침표 기준)
+        sentences = content.split('.')
+        if sentences:
+            # 첫 번째 문장 추출 (빈 문자열 제외)
+            first_sentence = sentences[0].strip()
+            if first_sentence:
+                # 마침표가 제거되었으므로 다시 추가
+                return first_sentence + '.'
         
-        # 문단 구분이 없는 경우 첫 200자로 제한
-        return content.strip()[:200]
+        # 문장 구분이 없는 경우 첫 100자로 제한
+        return content.strip()[:100]
     
     def classify_by_keywords(self, title: str, lead_paragraph: str) -> str:
         """고속 가중치 기반 키워드 분류 (최적화됨)"""
@@ -142,77 +141,31 @@ class FastPreprocessor:
                 max_score = score
                 best_category = category
         
-        # 임계값 이상이면 분류 결과 반환
-        if max_score >= 3.0:
+        # 임계값 이상이면 분류 결과 반환 (임계값을 낮춰서 더 많은 기사 분류)
+        if max_score >= 1.0:
             return best_category
         else:
-            return "uncertain"  # LLM으로 분류 필요
+            return "uncertain"  # 키워드로 분류되지 않은 경우
     
     def classify_by_llm(self, title: str, lead_paragraph: str) -> str:
-        """OpenAI GPT-4 mini로 정확한 분류 (새로운 API 방식)"""
-        try:
-            from openai import OpenAI
-            
-            client = OpenAI()
-            
-            prompt = f"""
-다음 정치 뉴스를 7개 카테고리 중 하나로 분류해주세요:
-
-1. 국회/정당 - 국회의원, 정당 활동, 의정 활동
-2. 행정부 - 정부, 대통령, 총리, 정부기관
-3. 선거 - 선거, 투표, 후보, 공천
-4. 사법/검찰 - 검찰, 법원, 재판, 수사
-5. 정책/경제사회 - 정책, 사회 문제, 경제
-6. 외교/안보 - 외교, 안보, 국방
-7. 지역정치 - 지방자치, 지역 정치
-8. 기타 - 위 카테고리에 포함되지 않는 경우
-
-제목: {title}
-리드문단: {lead_paragraph}
-
-카테고리 번호(1-8)만 답변:
-"""
-            
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=10,
-                temperature=0.1
-            )
-            
-            category_map = {
-                "1": "국회/정당",
-                "2": "행정부", 
-                "3": "선거",
-                "4": "사법/검찰",
-                "5": "정책/경제사회",
-                "6": "외교/안보",
-                "7": "지역정치",
-                "8": "기타"
-            }
-            
-            result = response.choices[0].message.content.strip()
-            return category_map.get(result, "기타")
-            
-        except Exception as e:
-            print(f"❌ LLM 분류 실패: {str(e)}")
-            return "기타"  # LLM 실패 시 기본값
+        """LLM 분류 비활성화 - 키워드 기반 분류만 사용"""
+        # 하이브리드 모델에서 LLM 부분을 제거하고 키워드 기반으로만 분류
+        return "기타"  # LLM 없이 키워드로 분류되지 않은 경우 기본값
     
     def classify_political_category(self, title: str, lead_paragraph: str) -> str:
-        """하이브리드 정치 카테고리 분류"""
+        """키워드 기반 정치 카테고리 분류 (LLM 없음)"""
         
-        # 1단계: 키워드 기반 빠른 분류
+        # 키워드 기반 분류만 사용
         keyword_category = self.classify_by_keywords(title, lead_paragraph)
         
-        # 2단계: 불확실한 경우에만 LLM 사용
+        # 키워드로 분류되지 않은 경우 "기타"로 분류
         if keyword_category == "uncertain":
-            llm_category = self.classify_by_llm(title, lead_paragraph)
-            return llm_category
+            return "기타"
         
         return keyword_category
     
     def preprocess_article(self, article: Dict[str, Any]) -> tuple:
-        """기사 전처리 (하이브리드 카테고리 분류 포함)"""
+        """기사 전처리 (키워드 기반 카테고리 분류)"""
         try:
             title = article.get('title', '')
             content = article.get('content', '')
@@ -226,10 +179,10 @@ class FastPreprocessor:
             # 본문 전처리
             cleaned_content = self.clean_noise(content)
             
-            # 리드문단 추출
+            # 첫 번째 문장 추출 (리드문)
             lead_paragraph = self.extract_lead_paragraph(cleaned_content)
             
-            # 하이브리드 정치 카테고리 분류
+            # 키워드 기반 정치 카테고리 분류
             political_category = self.classify_political_category(cleaned_title, lead_paragraph)
             
             return cleaned_title, cleaned_content, lead_paragraph, political_category, None
@@ -237,32 +190,20 @@ class FastPreprocessor:
         except Exception as e:
             return None, None, None, None, f"예외 발생: {str(e)}"
     
-    def fetch_unprocessed_articles_batch(self, offset: int, limit: int) -> List[Dict[str, Any]]:
-        """배치로 전처리되지 않은 기사 조회"""
+    def fetch_all_false_articles(self) -> List[Dict[str, Any]]:
+        """is_preprocessed = false인 모든 기사를 한 번에 조회"""
         try:
             result = self.supabase_manager.client.table('articles').select(
                 'id, title, content, media_id, published_at, is_preprocessed'
-            ).eq('is_preprocessed', False).range(offset, offset + limit - 1).execute()
+            ).eq('is_preprocessed', False).execute()
             
-            print(f"  🔍 조회된 기사 수: {len(result.data) if result.data else 0}개 (offset: {offset}, limit: {limit})")
+            print(f"🔍 조회된 false 기사 수: {len(result.data) if result.data else 0}개")
             return result.data if result.data else []
             
         except Exception as e:
-            print(f"❌ 기사 조회 실패 (offset: {offset}): {str(e)}")
+            print(f"❌ false 기사 조회 실패: {str(e)}")
             return []
     
-    def fetch_all_unprocessed_articles(self, limit: int) -> List[Dict[str, Any]]:
-        """전처리되지 않은 모든 기사를 한 번에 조회"""
-        try:
-            result = self.supabase_manager.client.table('articles').select(
-                'id, title, content, media_id, published_at, is_preprocessed'
-            ).eq('is_preprocessed', False).limit(limit).execute()
-            
-            return result.data if result.data else []
-            
-        except Exception as e:
-            print(f"❌ 전체 기사 조회 실패: {str(e)}")
-            return []
     
     def update_articles_batch(self, updates: List[Dict[str, Any]]) -> int:
         """배치로 기사 업데이트"""
@@ -295,7 +236,7 @@ class FastPreprocessor:
             return 0
     
     def process_batch(self, articles: List[Dict[str, Any]]) -> tuple:
-        """배치 처리 (하이브리드 카테고리 분류 포함)"""
+        """배치 처리 (키워드 기반 카테고리 분류)"""
         processed_updates = []
         failed_count = 0
         
@@ -327,40 +268,32 @@ class FastPreprocessor:
             print(f"❌ 총 개수 조회 실패: {str(e)}")
             return 0
     
-    def process_articles_fast(self, max_articles: Optional[int] = None) -> bool:
-        """고속 기사 전처리 메인 프로세스 (페이지네이션 지원)"""
+    def process_all_false_articles(self) -> bool:
+        """Option 1: is_preprocessed = false인 모든 기사를 직접 조회하여 처리"""
         try:
-            # 총 개수 조회
-            total_unprocessed = self.get_total_unprocessed_count()
-            if total_unprocessed == 0:
-                print("📝 처리할 기사가 없습니다.")
+            print("🚀 Direct Query 방식으로 전처리 시작...")
+            
+            # 1단계: 모든 false 기사 한 번에 조회
+            false_articles = self.fetch_all_false_articles()
+            if not false_articles:
+                print("📝 처리할 false 기사가 없습니다.")
                 return True
             
-            # 처리할 개수 결정
-            process_count = min(max_articles or total_unprocessed, total_unprocessed)
-            print(f"🚀 고속 전처리 시작... (처리 예정: {process_count:,}개)")
+            total_articles = len(false_articles)
+            print(f"📦 총 {total_articles:,}개의 false 기사를 배치로 처리합니다.")
             
             total_processed = 0
             total_failed = 0
-            batch_count = 0
             start_time = time.time()
-            offset = 0
             
-            # 페이지네이션으로 모든 기사 처리
-            while offset < process_count:
-                # 현재 배치의 기사 수 계산
-                current_batch_size = min(self.batch_size, process_count - offset)
+            # 2단계: 조회된 모든 기사를 배치로 처리
+            for i in range(0, total_articles, self.batch_size):
+                # 현재 배치 추출
+                batch_articles = false_articles[i:i + self.batch_size]
+                batch_num = (i // self.batch_size) + 1
+                total_batches = (total_articles + self.batch_size - 1) // self.batch_size
                 
-                # 배치로 기사 조회
-                batch_articles = self.fetch_unprocessed_articles_batch(offset, current_batch_size)
-                if not batch_articles:
-                    print("📝 더 이상 처리할 기사가 없습니다.")
-                    break
-                
-                    batch_count += 1
-                    # 배치 시작 메시지는 첫 번째만 표시
-                    if batch_count == 1:
-                        print(f"📦 배치 처리 시작... (총 {process_count:,}개 기사)")
+                print(f"📦 배치 {batch_num}/{total_batches} 처리 중... ({len(batch_articles)}개 기사)")
                 
                 # 배치 처리
                 processed_updates, failed_count = self.process_batch(batch_articles)
@@ -371,23 +304,20 @@ class FastPreprocessor:
                     success_count = self.update_articles_batch(processed_updates)
                     total_processed += success_count
                 
-                    # 진행률 표시 (한 줄로 깔끔하게)
-                    elapsed_time = time.time() - start_time
-                    progress = min(100, (offset + len(batch_articles)) / process_count * 100)
-                    rate = total_processed / elapsed_time if elapsed_time > 0 else 0
-                    eta = (process_count - total_processed) / rate if rate > 0 else 0
-                    
-                    print(f"\r🚀 진행률: {progress:.1f}% | 성공: {total_processed:,}개 | 실패: {total_failed:,}개 | 속도: {rate:.1f}개/초 | 남은시간: {eta/60:.1f}분", end="", flush=True)
+                # 진행률 표시
+                progress = min(100, (i + len(batch_articles)) / total_articles * 100)
+                elapsed_time = time.time() - start_time
+                rate = total_processed / elapsed_time if elapsed_time > 0 else 0
+                eta = (total_articles - total_processed) / rate if rate > 0 else 0
                 
-                # 다음 배치로 이동
-                offset += len(batch_articles)
+                print(f"🚀 진행률: {progress:.1f}% | 성공: {total_processed:,}개 | 실패: {total_failed:,}개 | 속도: {rate:.1f}개/초 | 남은시간: {eta/60:.1f}분")
                 
                 # 배치 간 짧은 대기 (API 제한 방지)
                 time.sleep(0.1)
             
-                # 최종 결과 (한 줄로 깔끔하게)
-                total_time = time.time() - start_time
-                print(f"\r🎉 전처리 완료! ✅ 성공: {total_processed:,}개 | ❌ 실패: {total_failed:,}개 | ⏱️ 소요시간: {total_time/60:.1f}분 | 📈 속도: {total_processed/total_time:.1f}개/초")
+            # 최종 결과
+            total_time = time.time() - start_time
+            print(f"🎉 전처리 완료! ✅ 성공: {total_processed:,}개 | ❌ 실패: {total_failed:,}개 | ⏱️ 소요시간: {total_time/60:.1f}분 | 📈 속도: {total_processed/total_time:.1f}개/초")
             
             return total_processed > 0
                 
@@ -411,9 +341,9 @@ def main():
         # is_preprocessed = False인 모든 기사 처리
         max_articles = None  # 전체 처리
         
-        # 전처리 실행
+        # 전처리 실행 (Option 1: Direct Query 방식)
         preprocessor = FastPreprocessor(batch_size=batch_size, max_workers=max_workers)
-        success = preprocessor.process_articles_fast(max_articles)
+        success = preprocessor.process_all_false_articles()
         
         if success:
             print(f"\n✅ 전처리 완료!")

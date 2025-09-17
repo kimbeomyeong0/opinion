@@ -16,13 +16,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # 필요한 라이브러리 import
-try:
-    import openai
-    from openai import OpenAI
-except ImportError:
-    print("❌ OpenAI 라이브러리가 설치되지 않았습니다.")
-    print("pip install openai")
-    exit(1)
 
 try:
     import umap
@@ -46,28 +39,27 @@ class AdvancedClusteringPipeline:
             raise Exception("Supabase 연결 실패")
         
         self.batch_size = batch_size
-        self.openai_client = OpenAI()
         
-        # UMAP 파라미터
+        # UMAP 파라미터 (더 큰 클러스터 허용)
         self.umap_params = {
-            'n_neighbors': 15,
-            'n_components': 50,
+            'n_neighbors': 15,  # 5 → 15로 증가 (더 큰 클러스터)
+            'n_components': 20,  # 10 → 20으로 증가
             'min_dist': 0.1,
             'metric': 'cosine',
             'random_state': 42
         }
         
-        # HDBSCAN 파라미터
+        # HDBSCAN 파라미터 (더 큰 클러스터 허용)
         self.hdbscan_params = {
-            'min_cluster_size': 10,
-            'min_samples': 5,
+            'min_cluster_size': 8,  # 3 → 8로 증가 (더 큰 클러스터)
+            'min_samples': 5,  # 2 → 5로 증가
             'metric': 'euclidean',
-            'cluster_selection_epsilon': 0.1
+            'cluster_selection_epsilon': 0.2  # 0.1 → 0.2로 증가
         }
         
-        # 통합 임계값
-        self.merge_threshold = 0.6  # 더욱 강화된 통합 (0.7 → 0.6)
-        self.separate_threshold = 0.5
+        # 통합 임계값 (더 강화된 통합)
+        self.merge_threshold = 0.5  # 0.6 → 0.5로 감소 (더 많은 통합)
+        self.separate_threshold = 0.4  # 0.5 → 0.4로 감소
     
     def fetch_articles_by_category(self, category: str) -> List[Dict[str, Any]]:
         """카테고리별 기사 조회 (임베딩 포함, 임베딩 없는 기사도 포함)"""
@@ -81,31 +73,6 @@ class AdvancedClusteringPipeline:
             print(f"❌ {category} 카테고리 기사 조회 실패: {str(e)}")
             return []
     
-    def generate_embeddings(self, texts: List[str]) -> np.ndarray:
-        """OpenAI 임베딩 생성"""
-        try:
-            embeddings = []
-            
-            # 배치로 임베딩 생성
-            for i in range(0, len(texts), self.batch_size):
-                batch_texts = texts[i:i + self.batch_size]
-                
-                response = self.openai_client.embeddings.create(
-                    model="text-embedding-3-large",
-                    input=batch_texts
-                )
-                
-                batch_embeddings = [data.embedding for data in response.data]
-                embeddings.extend(batch_embeddings)
-                
-                # API 제한 방지
-                time.sleep(0.1)
-            
-            return np.array(embeddings)
-            
-        except Exception as e:
-            print(f"❌ 임베딩 생성 실패: {str(e)}")
-            return np.array([])
     
     def reduce_dimensions(self, embeddings: np.ndarray) -> np.ndarray:
         """UMAP 차원 축소"""
@@ -236,7 +203,7 @@ class AdvancedClusteringPipeline:
                     cluster['title'], other_cluster['title']
                 )
                 
-                if similarity >= 0.25:  # 25% 이상 유사하면 그룹에 추가 (더 강화된 통합)
+                if similarity >= 0.15:  # 15% 이상 유사하면 그룹에 추가 (더욱 강화된 통합)
                     similar_group.append(j)
                     used_indices.add(j)
             
@@ -247,17 +214,29 @@ class AdvancedClusteringPipeline:
     def calculate_embedding_similarity(self, articles1: List[Dict[str, Any]], articles2: List[Dict[str, Any]]) -> float:
         """두 클러스터의 기사들 간 임베딩 유사도 계산 (저장된 임베딩 사용)"""
         try:
-            # 저장된 임베딩 추출
+            import json
+            
+            # 저장된 임베딩 추출 및 파싱
             embeddings1 = []
             embeddings2 = []
             
             for article in articles1:
                 if article.get('embedding'):
-                    embeddings1.append(article['embedding'])
+                    try:
+                        # JSON 문자열을 파싱하여 리스트로 변환
+                        embedding_data = json.loads(article['embedding'])
+                        embeddings1.append(embedding_data)
+                    except:
+                        continue
             
             for article in articles2:
                 if article.get('embedding'):
-                    embeddings2.append(article['embedding'])
+                    try:
+                        # JSON 문자열을 파싱하여 리스트로 변환
+                        embedding_data = json.loads(article['embedding'])
+                        embeddings2.append(embedding_data)
+                    except:
+                        continue
             
             if len(embeddings1) == 0 or len(embeddings2) == 0:
                 return 0.0
@@ -384,18 +363,58 @@ class AdvancedClusteringPipeline:
         
         print(f"  📰 조회된 기사: {len(articles):,}개")
         
-        # 2. 텍스트 준비 (제목 + 리드문단)
-        texts = []
-        for article in articles:
-            text = f"{article['title']} {article.get('lead_paragraph', '')}"
-            texts.append(text)
+        # 2. 임베딩 처리 (저장된 임베딩만 사용)
+        print(f"  🔄 임베딩 처리 중...")
         
-        # 3. 임베딩 생성
-        print(f"  🔄 임베딩 생성 중...")
-        embeddings = self.generate_embeddings(texts)
-        if len(embeddings) == 0:
-            print(f"❌ {category} 임베딩 생성 실패")
+        # 임베딩이 있는 기사만 필터링
+        articles_with_embedding = []
+        for article in articles:
+            if article.get('embedding'):
+                articles_with_embedding.append(article)
+        
+        print(f"    📊 임베딩 있는 기사: {len(articles_with_embedding)}개")
+        
+        if len(articles_with_embedding) == 0:
+            print(f"❌ {category} 임베딩이 있는 기사가 없습니다. 먼저 generate_embeddings.py를 실행하세요.")
             return {'success': False, 'clusters': 0}
+        
+        # 임베딩 배열 생성 (vector 타입 처리)
+        embeddings = []
+        for article in articles_with_embedding:
+            embedding_data = article['embedding']
+            
+            # vector 타입은 이미 리스트 형태로 반환됨
+            if isinstance(embedding_data, list):
+                embeddings.append(embedding_data)
+            elif isinstance(embedding_data, str):
+                # 문자열인 경우 파싱 시도
+                try:
+                    # JSON 형태의 문자열인지 확인
+                    import json
+                    embedding_list = json.loads(embedding_data)
+                    embeddings.append(embedding_list)
+                except:
+                    try:
+                        # 리스트 형태의 문자열인지 확인
+                        embedding_list = eval(embedding_data)
+                        embeddings.append(embedding_list)
+                    except:
+                        print(f"❌ 임베딩 파싱 실패: {article['id']}")
+                        continue
+            else:
+                print(f"❌ 알 수 없는 임베딩 타입: {type(embedding_data)}")
+                continue
+        
+        if len(embeddings) == 0:
+            print(f"❌ {category} 유효한 임베딩이 없습니다.")
+            return {'success': False, 'clusters': 0}
+        
+        embeddings = np.array(embeddings)
+        print(f"    📊 임베딩 배열 형태: {embeddings.shape}")
+        print(f"    📊 임베딩 차원: {embeddings.shape[1] if len(embeddings.shape) > 1 else 'N/A'}")
+        
+        # 임베딩이 있는 기사들만 처리
+        articles = articles_with_embedding
         
         # 4. 차원 축소
         print(f"  📉 차원 축소 중...")

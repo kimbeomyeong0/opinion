@@ -126,6 +126,56 @@ body {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
+/* 불렛 스타일 */
+.bullet-list {
+    line-height: 1.8;
+    margin: 16px 0;
+    padding-left: 20px;
+}
+
+.bullet-list li {
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+}
+
+/* 더보기 기능 */
+.view-content {
+    transition: max-height 0.3s ease;
+}
+
+.view-content.expanded {
+    max-height: none;
+}
+
+.view-toggle {
+    color: #1976d2;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 8px;
+    display: inline-block;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.view-toggle:hover {
+    border-bottom-color: #1976d2;
+}
+
+/* Summary 스타일 */
+.summary-content {
+    color: #666666;
+    line-height: 1.6;
+    margin-bottom: 8px;
+}
+
+.summary-content.collapsible {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+}
+
 /* 이슈 헤더 */
 .issue-header {
     margin-bottom: 20px;
@@ -166,16 +216,49 @@ body {
     padding: 16px;
     border-radius: 12px;
     border: 1px solid #e9ecef;
+    position: relative;
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.side-view::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    transition: left 0.5s ease;
 }
 
 .side-view.left {
-    background-color: rgba(25, 118, 210, 0.05);
+    background: linear-gradient(135deg, #fce4ec 0%, #f8bbd9 100%);
     border-color: rgba(25, 118, 210, 0.2);
 }
 
 .side-view.right {
-    background-color: rgba(220, 53, 69, 0.05);
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
     border-color: rgba(220, 53, 69, 0.2);
+}
+
+.side-view:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+.side-view.left:hover {
+    background: linear-gradient(135deg, #f8bbd9 0%, #f48fb1 100%);
+    border-color: #e91e63;
+}
+
+.side-view.right:hover {
+    background: linear-gradient(135deg, #bbdefb 0%, #90caf9 100%);
+    border-color: #2196f3;
+}
+
+.side-view:hover::before {
+    left: 100%;
 }
 
 .side-view .view-header {
@@ -188,12 +271,41 @@ body {
 
 .side-view .view-title {
     margin-bottom: 0;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     background: none;
     border: none;
     padding: 0;
     border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: color 0.3s ease;
+}
+
+.side-view .view-title::after {
+    font-size: 20px;
+    transition: transform 0.3s ease;
+}
+
+.side-view.left .view-title {
+    color: #e91e63;
+}
+
+.side-view.left .view-title::after {
+    content: '🔴';
+}
+
+.side-view.right .view-title {
+    color: #2196f3;
+}
+
+.side-view.right .view-title::after {
+    content: '🔵';
+}
+
+.side-view:hover .view-title::after {
+    transform: scale(1.2) rotate(10deg);
 }
 
 .side-view .view-summary {
@@ -231,15 +343,43 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 0;
+    padding: 12px 16px;
     border-bottom: 1px solid #e9ecef;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 1px solid #dee2e6;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.collapsible-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    transition: left 0.5s ease;
 }
 
 .collapsible-header:hover {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 8px 12px;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border-color: #1976d2;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(25, 118, 210, 0.15);
+    color: #1976d2;
+}
+
+.collapsible-header:hover::before {
+    left: 100%;
+}
+
+.collapsible-header:active {
+    transform: translateY(0px);
+    box-shadow: 0 2px 6px rgba(25, 118, 210, 0.2);
 }
 
 .collapsible-section .view-summary {
@@ -253,9 +393,10 @@ body {
 }
 
 .toggle-icon {
-    font-size: 12px;
-    color: #666666;
-    transition: transform 0.2s ease;
+    font-size: 14px;
+    color: #1976d2;
+    transition: transform 0.3s ease;
+    font-weight: bold;
 }
 
 .toggle-icon.rotated {
@@ -433,38 +574,34 @@ body {
 """
     
     def _format_background(self, text: str) -> str:
-        """Background 텍스트 포맷팅 (불렛 포인트 스타일)"""
+        """Background 텍스트 포맷팅 (마크다운 문법 완전 제거, 불렛 간 줄띄우기)"""
         if not text or not text.strip():
             return text
         
-        # "관련 기사 내용:" 라벨 제거
-        formatted_text = text.replace('관련 기사 내용:', '').strip()
-        
-        # <br> 태그를 실제 줄바꿈으로 변환
-        formatted_text = formatted_text.replace('<br>', '\n')
+        # 마크다운 문법 완전 제거 (**, •, <br>, #, *, - 등)
+        import re
+        formatted_text = text
+        formatted_text = re.sub(r'\*\*([^*]+)\*\*', r'\1', formatted_text)  # **텍스트** → 텍스트
+        formatted_text = re.sub(r'\*([^*]+)\*', r'\1', formatted_text)      # *텍스트* → 텍스트
+        formatted_text = re.sub(r'#+\s*', '', formatted_text)              # # 제목 → 제목
+        formatted_text = formatted_text.replace('•', '').replace('<br>', '\n').replace('*', '').replace('-', '').strip()
         
         # 각 불렛 포인트를 별도 줄로 분리
         lines = [line.strip() for line in formatted_text.split('\n') if line.strip()]
         
-        # 불렛 포인트들을 HTML로 포맷팅
-        bullet_html = '<div class="background-bullets">'
+        # 불렛 포인트들을 HTML로 포맷팅 (불렛 간 줄띄우기 포함)
+        bullet_html = '<ul class="bullet-list">'
         for line in lines:
-            if line.startswith('•'):
-                # • 기호 제거
-                content = line[1:].strip()
-            else:
-                content = line
+            content = line.strip()
             
             # 너무 긴 텍스트는 적절히 줄임 (200자 제한)
             if len(content) > 200:
                 content = content[:200] + "..."
             
-            # HTML 생성
-            bullet_html += '<div class="background-bullet-container">'
-            bullet_html += f'<div class="background-bullet">{content}</div>'
-            bullet_html += '</div>'
+            # HTML 생성 (불렛 간 줄띄우기 포함)
+            bullet_html += f'<li style="margin-bottom: 12px;">{content}</li>'
         
-        bullet_html += '</div>'
+        bullet_html += '</ul>'
         return bullet_html
     
     def _generate_gauge_bar(self, stats: Dict[str, int]) -> str:
@@ -517,41 +654,69 @@ body {
             return '', view_data.strip()
 
     def _generate_side_views(self, issue: Dict[str, Any]) -> str:
-        """좌우 관점을 나란히 배치"""
-        left_title, left_content = self._parse_view_data(issue.get('left_view', ''))
-        right_title, right_content = self._parse_view_data(issue.get('right_view', ''))
+        """좌우 관점을 나란히 배치 (첫 문장만 노출, 더보기 기능)"""
+        left_view = issue.get('left_view', '')
+        right_view = issue.get('right_view', '')
         
         left_html = ""
         right_html = ""
         
-        if left_title:
-            left_html = f"""
+        if left_view:
+            # 처음 20글자만 추출 (더 명확하게)
+            first_20_chars = left_view[:20] + '...' if len(left_view) > 20 else left_view
+            remaining_text = left_view[20:] if len(left_view) > 20 else ""
+            
+            if remaining_text:
+                left_html = f"""
         <div class="side-view left">
-            <div class="view-header" onclick="toggleView('left-{issue['id'][:8]}')">
-                <div class="view-title left">좌파 관점</div>
-                <span class="toggle-icon" id="toggle-left-{issue['id'][:8]}">▼</span>
+            <div class="view-title left">좌파 관점</div>
+            <div class="view-content">
+                {first_20_chars}
             </div>
-            <div class="view-summary" onclick="toggleView('left-{issue['id'][:8]}')">
-                {left_title}
-            </div>
+            <a href="#" class="view-toggle" onclick="toggleView('left-{issue['id'][:8]}'); return false;">
+                더보기 <span id="toggle-left-{issue['id'][:8]}">▼</span>
+            </a>
             <div class="view-content collapsible" id="content-left-{issue['id'][:8]}" style="display: none;">
-                {self._format_content(left_content)}
+                {self._format_content(left_view)}
+            </div>
+        </div>
+"""
+            else:
+                left_html = f"""
+        <div class="side-view left">
+            <div class="view-title left">좌파 관점</div>
+            <div class="view-content">
+                {first_20_chars}
             </div>
         </div>
 """
         
-        if right_title:
-            right_html = f"""
+        if right_view:
+            # 처음 20글자만 추출 (더 명확하게)
+            first_20_chars = right_view[:20] + '...' if len(right_view) > 20 else right_view
+            remaining_text = right_view[20:] if len(right_view) > 20 else ""
+            
+            if remaining_text:
+                right_html = f"""
         <div class="side-view right">
-            <div class="view-header" onclick="toggleView('right-{issue['id'][:8]}')">
-                <div class="view-title right">우파 관점</div>
-                <span class="toggle-icon" id="toggle-right-{issue['id'][:8]}">▼</span>
+            <div class="view-title right">우파 관점</div>
+            <div class="view-content">
+                {first_20_chars}
             </div>
-            <div class="view-summary" onclick="toggleView('right-{issue['id'][:8]}')">
-                {right_title}
-            </div>
+            <a href="#" class="view-toggle" onclick="toggleView('right-{issue['id'][:8]}'); return false;">
+                더보기 <span id="toggle-right-{issue['id'][:8]}">▼</span>
+            </a>
             <div class="view-content collapsible" id="content-right-{issue['id'][:8]}" style="display: none;">
-                {self._format_content(right_content)}
+                {self._format_content(right_view)}
+            </div>
+        </div>
+"""
+            else:
+                right_html = f"""
+        <div class="side-view right">
+            <div class="view-title right">우파 관점</div>
+            <div class="view-content">
+                {first_20_chars}
             </div>
         </div>
 """
@@ -588,12 +753,20 @@ body {
 """
     
     def _format_content(self, content: str) -> str:
-        """내용을 HTML 형식으로 포맷팅"""
+        """내용을 HTML 형식으로 포맷팅 (마크다운 문법 제거)"""
         if not content:
             return ""
         
+        # 마크다운 문법 제거
+        import re
+        formatted = content
+        formatted = re.sub(r'\*\*([^*]+)\*\*', r'\1', formatted)  # **텍스트** → 텍스트
+        formatted = re.sub(r'\*([^*]+)\*', r'\1', formatted)      # *텍스트* → 텍스트
+        formatted = re.sub(r'#+\s*', '', formatted)              # # 제목 → 제목
+        formatted = formatted.replace('•', '').replace('<br>', '\n').replace('*', '').replace('-', '').strip()
+        
         # 줄바꿈을 <br>로 변환
-        formatted = content.replace('\n', '<br>')
+        formatted = formatted.replace('\n', '<br>')
         
         # 문단 구분을 위해 이중 줄바꿈을 <p> 태그로 변환
         paragraphs = formatted.split('<br><br>')
@@ -603,6 +776,37 @@ body {
             formatted = f'<p>{formatted}</p>'
         
         return formatted
+
+    def _format_summary_with_toggle(self, summary: str, issue_id: str) -> str:
+        """Summary를 첫 문장만 노출하고 나머지는 더보기로 처리"""
+        if not summary or not summary.strip():
+            return ""
+        
+        # 첫 문장 추출 (마침표 기준)
+        sentences = summary.split('.')
+        if len(sentences) > 1:
+            first_sentence = sentences[0] + '.'
+            remaining_text = '.'.join(sentences[1:]).strip()
+            if remaining_text:
+                remaining_text = remaining_text[1:] if remaining_text.startswith('.') else remaining_text
+        else:
+            first_sentence = summary
+            remaining_text = ""
+        
+        if not remaining_text:
+            return f'<div class="summary-content">{first_sentence}</div>'
+        
+        return f"""
+        <div class="summary-content">
+            {first_sentence}
+        </div>
+        <a href="#" class="view-toggle" onclick="toggleView('summary-{issue_id[:8]}'); return false;">
+            더보기 <span id="toggle-summary-{issue_id[:8]}">▼</span>
+        </a>
+        <div class="summary-content collapsible" id="content-summary-{issue_id[:8]}" style="display: none;">
+            {remaining_text}
+        </div>
+"""
 
     def _generate_issue_card(self, issue: Dict[str, Any]) -> str:
         """이슈 카드 HTML 생성"""
@@ -625,12 +829,15 @@ body {
         clean_title = str(issue['title']).strip('"').strip("'") if issue['title'] else ""
         clean_subtitle = str(issue['issue_summary']).strip('"').strip("'") if issue['issue_summary'] else ""
         
+        # Summary를 첫 문장만 노출하고 나머지는 더보기로 처리
+        formatted_summary = self._format_summary_with_toggle(clean_subtitle, issue['id'])
+        
         return f"""
     <div class="issue-card">
         <div class="issue-header">
             <div class="meta-info">{stats['total']}개 기사 ∙ {formatted_date}</div>
             <div class="title">{clean_title}</div>
-            <div class="subtitle">{clean_subtitle}</div>
+            <div class="subtitle">{formatted_summary}</div>
         </div>
         
         {self._generate_side_views(issue)}
@@ -648,7 +855,7 @@ body {
                 <span class="toggle-icon" id="toggle-background-{issue['id'][:8]}">▼</span>
             </div>
             <div class="section-content" id="background-{issue['id'][:8]}" style="display: none;">
-                {self._format_background(issue['issue_timeline'])}
+                {self._format_background(issue.get('issue_timeline', ''))}
             </div>
         </div>
     </div>
@@ -672,10 +879,22 @@ body {
     def generate_html(self) -> str:
         """전체 HTML 생성"""
         try:
-            # 이슈 데이터 조회
+            # 이슈 데이터 조회 (source 30개 이상만)
             result = self.supabase_manager.client.table('issues').select(
-                'id, title, issue_summary, issue_timeline, left_view, center_view, right_view, created_at'
-            ).order('created_at', desc=True).execute()
+                'id, title, issue_summary, issue_timeline, left_view, center_view, right_view, created_at, source'
+            ).order('source', desc=True).execute()
+            
+            # source가 30개 이상인 이슈만 필터링 (문자열을 정수로 변환하여 비교)
+            filtered_issues = []
+            for issue in result.data:
+                try:
+                    source_count = int(issue['source'])
+                    if source_count >= 30:
+                        filtered_issues.append(issue)
+                except (ValueError, TypeError):
+                    continue
+            
+            result.data = filtered_issues
             
             if not result.data:
                 console.print("❌ 이슈 데이터가 없습니다.")
