@@ -1,0 +1,20 @@
+# 핵심 의존성 패키지들
+supabase==2.18.1
+beautifulsoup4==4.12.2
+httpx==0.28.1
+playwright==1.53.0
+rich==13.9.4
+pytz==2025.2
+pandas==2.0.3
+numpy==1.24.3
+requests==2.32.4
+python-dotenv==1.0.0
+
+# 머신러닝 및 데이터 분석
+scikit-learn==1.6.1
+sentence-transformers==4.1.0
+umap-learn==0.5.9.post2
+hdbscan==0.8.40
+
+# 유틸리티
+tqdm==4.67.1
