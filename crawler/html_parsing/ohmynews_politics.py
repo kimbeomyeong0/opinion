@@ -305,16 +305,23 @@ class OhmyNewsPoliticsCollector:
             # 중복 제거 및 배치 준비
             new_articles = []
             skip_count = 0
+            short_content_count = 0
             
             for article in self.articles:
                 if article["url"] in existing_urls:
                     skip_count += 1
                     continue
+                
+                # 본문이 너무 짧으면 제외 (20자 미만)
+                content = article.get("content", "").strip()
+                if len(content) < 20:
+                    short_content_count += 1
+                    continue
                     
                 article_data = {
                     "title": article["title"],
                     "url": article["url"],
-                    "content": article["content"],
+                    "content": content,
                     "published_at": article["published_at"] or datetime.now(pytz.UTC).isoformat(),
                     "created_at": datetime.now(pytz.UTC).isoformat(),
                     "media_id": media_id,
