@@ -248,20 +248,23 @@ class MunhwaPoliticsCollector:
             return datetime.now(pytz.UTC).isoformat()
 
     def _extract_content_text(self, soup: BeautifulSoup) -> str:
-        """문화일보 본문 텍스트 추출 (개선된 버전)"""
+        """문화일보 본문 텍스트 추출 (p.text-l만 추출)"""
         try:
-            # 1차: #article-body.view 찾기
-            content_container = soup.select_one('#article-body.view')
+            # #article-body 컨테이너 찾기
+            content_container = soup.select_one('#article-body')
             
             if not content_container:
                 console.print("⚠️ 본문 컨테이너를 찾을 수 없습니다")
                 return ""
             
-            # 제외할 요소들 제거
+            # 제외할 요소들 완전 제거
             exclude_selectors = [
-                'script', 'style', 'noscript', '.article-photo-wrap', 
-                'figure', 'figcaption', '[data-svcad]', '[id^=svcad_]', 
-                '[class^=ad-]', 'ins', 'iframe'
+                'script', 'style', 'noscript', 
+                '.article-photo-wrap', '.article-subtitle',  # 부제목 제외
+                'figure', 'figcaption', 
+                '[data-svcad]', '[id^=svcad_]', '[id*=svcad]',  # 광고 영역 강화
+                '[class^=ad-]', '[class*=ad-]', 
+                'ins', 'iframe', 'div[id^="svcad"]'
             ]
             
             for selector in exclude_selectors:
@@ -269,57 +272,50 @@ class MunhwaPoliticsCollector:
                 for el in elements:
                     el.decompose()
             
-            # <br> 태그를 줄바꿈으로 변환
-            for br in content_container.find_all('br'):
-                br.replace_with('\n')
-            
-            # subtitles 수집 (.article-subtitle p)
-            subtitles = []
-            subtitle_elements = content_container.select('.article-subtitle p')
-            for element in subtitle_elements:
-                text = element.get_text(strip=True)
-                if text:
-                    subtitles.append(text)
-            
-            # paragraphs 수집 (p.text-l)
+            # p.text-l 태그만 선택적으로 추출
             paragraphs = []
             paragraph_elements = content_container.select('p.text-l')
-            for element in paragraph_elements:
-                text = element.get_text(strip=True)
-                if text:
-                    paragraphs.append(text)
             
-            # 일반 p 태그도 수집 (text-l이 없는 경우)
+            for element in paragraph_elements:
+                # HTML 엔티티 처리를 위해 get_text() 사용
+                text = element.get_text(strip=True)
+                
+                # 기자명 패턴 제거 (다양한 형태)
+                text = re.sub(r'…\s*\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
+                text = re.sub(r'\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
+                text = re.sub(r'기자\s*\w+\s*$', '', text, flags=re.MULTILINE)
+                
+                # 의미있는 텍스트만 추가 (10자 이상)
+                if text and len(text.strip()) > 10:
+                    paragraphs.append(text.strip())
+            
+            # p.text-l이 없는 경우 일반 p 태그 시도 (fallback)
             if not paragraphs:
+                console.print("⚠️ p.text-l을 찾을 수 없어 일반 p 태그 시도")
                 all_p_elements = content_container.find_all('p')
                 for element in all_p_elements:
                     text = element.get_text(strip=True)
-                    if text and len(text) > 20:  # 20자 이상인 문단만
-                        paragraphs.append(text)
+                    # 기자명 패턴 제거
+                    text = re.sub(r'…\s*\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
+                    text = re.sub(r'\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
+                    
+                    if text and len(text.strip()) > 20:  # fallback은 더 긴 텍스트만
+                        paragraphs.append(text.strip())
             
-            # 컨테이너 끝의 독립 텍스트 노드 확인 (… 기자 형식)
-            # 전체 텍스트에서 기자 정보 제거
-            full_text = content_container.get_text()
-            # … 기자 형식 제거
-            full_text = re.sub(r'…\s*\w+\s*기자\s*$', '', full_text, flags=re.MULTILINE)
+            if not paragraphs:
+                console.print("⚠️ 추출할 본문이 없습니다")
+                return ""
             
-            # 텍스트 결합
-            if subtitles and paragraphs:
-                combined_text = '\n\n'.join(subtitles + [''] + paragraphs)
-            elif subtitles:
-                combined_text = '\n\n'.join(subtitles)
-            elif paragraphs:
-                combined_text = '\n\n'.join(paragraphs)
-            else:
-                # 전체 텍스트에서 추출
-                lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-                combined_text = '\n\n'.join(lines)
+            # 문단들을 줄바꿈으로 연결
+            combined_text = '\n\n'.join(paragraphs)
             
-            # 공백 정규화
-            combined_text = re.sub(r'\s+', ' ', combined_text)
-            combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text).strip()
+            # HTML 엔티티 및 공백 정규화
+            combined_text = re.sub(r'&nbsp;', ' ', combined_text)  # &nbsp; 제거
+            combined_text = re.sub(r'&[a-zA-Z]+;', ' ', combined_text)  # 기타 HTML 엔티티
+            combined_text = re.sub(r'\s+', ' ', combined_text)  # 연속 공백 정규화
+            combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text)  # 연속 줄바꿈 정규화
             
-            return combined_text
+            return combined_text.strip()
             
         except Exception as e:
             console.print(f"⚠️ 본문 추출 실패: {str(e)}")

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-행정부 카테고리 기사 클러스터링 스크립트
-- 행정부 카테고리 기사들의 임베딩을 사용한 클러스터링
+전체 정치 카테고리 기사 클러스터링 스크립트
+- 8개 정치 카테고리별 독립 클러스터링 수행
+- LLM 기반 동적 사건 패턴 생성
 - UMAP 차원축소 + HDBSCAN 클러스터링
-- 상위 3개 클러스터를 issues 테이블에 저장
-- 클러스터 소속 기사들에 issue_id 업데이트
+- 카테고리별 상위 3개 클러스터를 issues 테이블에 저장 (20개 기사 이상만)
+- 하이브리드 처리: 대용량 순차, 소량 병렬
 """
 
 import sys
@@ -38,8 +39,8 @@ except ImportError as e:
     sys.exit(1)
 
 
-class ArticleClusterer:
-    """행정부 기사 클러스터링 클래스"""
+class MultiCategoryClusterer:
+    """전체 정치 카테고리 클러스터링 클래스"""
     
     def __init__(self):
         """초기화"""
@@ -55,12 +56,22 @@ class ArticleClusterer:
             console.print(f"❌ OpenAI 클라이언트 초기화 실패: {str(e)}")
             raise Exception("OpenAI 연결 실패")
         
-        console.print("✅ ArticleClusterer 초기화 완료")
+        # 정치 카테고리 정의
+        self.categories = {
+            # 대용량 카테고리 (순차 처리)
+            "large": ["행정부", "사법/검찰", "기타", "국회/정당", "외교/안보"],
+            # 소량 카테고리 (병렬 처리)  
+            "small": ["정책/경제사회", "선거", "지역정치"]
+        }
+        
+        console.print("✅ MultiCategoryClusterer 초기화 완료")
+        console.print(f"📊 대용량 카테고리: {len(self.categories['large'])}개")
+        console.print(f"📊 소량 카테고리: {len(self.categories['small'])}개")
     
-    def fetch_administrative_articles(self) -> List[Dict[str, Any]]:
-        """행정부 카테고리 기사들과 임베딩 조회"""
+    def fetch_articles_by_category(self, category: str) -> List[Dict[str, Any]]:
+        """특정 카테고리 기사들과 임베딩 조회"""
         try:
-            console.print("🔍 행정부 카테고리 기사 조회 중...")
+            console.print(f"🔍 {category} 카테고리 기사 조회 중...")
             
             all_articles = []
             page_size = 1000
@@ -69,7 +80,7 @@ class ArticleClusterer:
             while True:
                 result = self.supabase_manager.client.table('articles').select(
                     'id, title, media_id, political_category, embedding, published_at'
-                ).eq('political_category', '행정부').not_.is_('embedding', 'null').range(
+                ).eq('political_category', category).not_.is_('embedding', 'null').range(
                     offset, offset + page_size - 1
                 ).execute()
                 
@@ -84,11 +95,11 @@ class ArticleClusterer:
                 offset += page_size
                 console.print(f"📄 페이지 조회 중... {len(all_articles)}개 수집됨")
             
-            console.print(f"✅ 행정부 카테고리 기사 {len(all_articles)}개 조회 완료")
+            console.print(f"✅ {category} 카테고리 기사 {len(all_articles)}개 조회 완료")
             return all_articles
             
         except Exception as e:
-            console.print(f"❌ 행정부 기사 조회 실패: {str(e)}")
+            console.print(f"❌ {category} 기사 조회 실패: {str(e)}")
             return []
     
     def extract_embeddings(self, articles: List[Dict[str, Any]]) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
@@ -664,9 +675,9 @@ JSON 형태로 응답해주세요:
                 elif group.get('event_type') == 'merged':
                     quality_score += 5   # 병합된 그룹에 중간 보너스
                 
-                # 최소 임계값 적용
-                if group['article_count'] < 5:
-                    quality_score = 0  # 5개 미만 그룹은 제외
+                # 최소 임계값 적용 (20개로 상향)
+                if group['article_count'] < 20:
+                    quality_score = 0  # 20개 미만 그룹은 제외
                 
                 group['quality_score'] = quality_score
             
@@ -703,10 +714,10 @@ JSON 형태로 응답해주세요:
             console.print(f"❌ 후처리 시스템 실패: {str(e)}")
             return []
     
-    def save_issues_to_db(self, top_clusters: List[Dict[str, Any]]) -> List[str]:
-        """상위 클러스터를 issues 테이블에 저장"""
+    def save_issues_to_db(self, top_clusters: List[Dict[str, Any]], category: str) -> List[str]:
+        """상위 클러스터를 issues 테이블에 저장 (카테고리 정보 포함)"""
         try:
-            console.print("💾 issues 테이블에 저장 중...")
+            console.print(f"💾 {category} 카테고리 issues 테이블에 저장 중...")
             
             saved_issue_ids = []
             
@@ -714,6 +725,7 @@ JSON 형태로 응답해주세요:
                 try:
                     issue_data = {
                         'title': cluster['title'],
+                        'category': category,  # 카테고리 정보 추가
                         'source': cluster['total_articles'],
                         'left_source': cluster['left_source'],
                         'center_source': cluster['center_source'],
@@ -726,18 +738,18 @@ JSON 형태로 응답해주세요:
                     if result.data:
                         issue_id = result.data[0]['id']
                         saved_issue_ids.append(issue_id)
-                        console.print(f"✅ 이슈 {i} 저장 완료: {issue_id}")
+                        console.print(f"✅ {category} 이슈 {i} 저장 완료: {cluster['title']} ({cluster['total_articles']}개 기사)")
                     else:
-                        console.print(f"❌ 이슈 {i} 저장 실패")
+                        console.print(f"❌ {category} 이슈 {i} 저장 실패")
                         
                 except Exception as e:
-                    console.print(f"❌ 이슈 {i} 저장 오류: {str(e)}")
+                    console.print(f"❌ {category} 이슈 {i} 저장 오류: {str(e)}")
             
-            console.print(f"✅ {len(saved_issue_ids)}개 이슈 저장 완료")
+            console.print(f"✅ {category} 카테고리 {len(saved_issue_ids)}개 이슈 저장 완료")
             return saved_issue_ids
             
         except Exception as e:
-            console.print(f"❌ issues 테이블 저장 실패: {str(e)}")
+            console.print(f"❌ {category} issues 테이블 저장 실패: {str(e)}")
             return []
     
     def update_articles_with_issue_ids(self, top_clusters: List[Dict[str, Any]], 
@@ -774,87 +786,129 @@ JSON 형태로 응답해주세요:
             console.print(f"❌ 기사 issue_id 업데이트 실패: {str(e)}")
             return 0
     
-    def run_clustering(self) -> bool:
-        """전체 클러스터링 프로세스 실행"""
+    def process_single_category(self, category: str) -> Dict[str, Any]:
+        """단일 카테고리 클러스터링 처리"""
         try:
-            console.print("=" * 60)
-            console.print("🚀 행정부 카테고리 기사 클러스터링 시작")
-            console.print("=" * 60)
+            console.print(f"\n{'='*20} {category} 카테고리 처리 시작 {'='*20}")
             
-            # 1. 행정부 카테고리 기사 조회
-            articles = self.fetch_administrative_articles()
+            # 1. 카테고리별 기사 조회
+            articles = self.fetch_articles_by_category(category)
             if not articles:
-                console.print("❌ 행정부 카테고리 기사가 없습니다.")
-                return False
+                console.print(f"❌ {category} 카테고리 기사가 없습니다.")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
             # 2. 임베딩 추출
             embeddings, valid_articles = self.extract_embeddings(articles)
             if len(embeddings) == 0:
-                console.print("❌ 유효한 임베딩이 없습니다.")
-                return False
+                console.print(f"❌ {category} 유효한 임베딩이 없습니다.")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
-            if len(valid_articles) < 50:  # 최소 기사 수 확인
-                console.print(f"⚠️ 기사 수가 너무 적습니다: {len(valid_articles)}개")
-                console.print("클러스터링을 위해서는 최소 50개 이상의 기사가 필요합니다.")
-                return False
+            if len(valid_articles) < 30:  # 최소 기사 수 확인 (카테고리별 조정)
+                console.print(f"⚠️ {category} 기사 수가 너무 적습니다: {len(valid_articles)}개")
+                console.print("클러스터링을 위해서는 최소 30개 이상의 기사가 필요합니다.")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
             # 3. UMAP 차원축소
             reduced_embeddings = self.perform_umap_reduction(embeddings)
             if len(reduced_embeddings) == 0:
-                console.print("❌ UMAP 차원축소 실패")
-                return False
+                console.print(f"❌ {category} UMAP 차원축소 실패")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
             # 4. HDBSCAN 클러스터링
             cluster_labels = self.perform_hdbscan_clustering(reduced_embeddings)
             if len(cluster_labels) == 0:
-                console.print("❌ HDBSCAN 클러스터링 실패")
-                return False
+                console.print(f"❌ {category} HDBSCAN 클러스터링 실패")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
             # 5. 언론사 bias 매핑 조회
             bias_mapping = self.get_media_bias_mapping()
             if not bias_mapping:
-                console.print("❌ 언론사 bias 매핑 조회 실패")
-                return False
+                console.print(f"❌ {category} 언론사 bias 매핑 조회 실패")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
             # 6. 클러스터 분석 및 상위 3개 선별
             top_clusters = self.analyze_clusters(valid_articles, cluster_labels, bias_mapping)
             if not top_clusters:
-                console.print("❌ 유효한 클러스터가 없습니다.")
-                return False
+                console.print(f"❌ {category} 유효한 클러스터가 없습니다.")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
-            # 7. issues 테이블에 저장
-            issue_ids = self.save_issues_to_db(top_clusters)
+            # 7. issues 테이블에 저장 (카테고리 정보 포함)
+            issue_ids = self.save_issues_to_db(top_clusters, category)
             if not issue_ids:
-                console.print("❌ issues 테이블 저장 실패")
-                return False
+                console.print(f"❌ {category} issues 테이블 저장 실패")
+                return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
             
             # 8. 기사들에 issue_id 업데이트
             updated_count = self.update_articles_with_issue_ids(top_clusters, issue_ids)
             
-            # 최종 결과
-            console.print("\n" + "=" * 60)
-            console.print("🎉 클러스터링 완료!")
-            console.print(f"✅ 생성된 이슈: {len(issue_ids)}개")
-            console.print(f"✅ 업데이트된 기사: {updated_count}개")
-            console.print("=" * 60)
-            
-            return True
+            console.print(f"✅ {category} 카테고리 완료: {len(issue_ids)}개 이슈, {updated_count}개 기사")
+            return {
+                'category': category, 
+                'success': True, 
+                'issues': len(issue_ids), 
+                'articles': updated_count
+            }
             
         except Exception as e:
-            console.print(f"❌ 클러스터링 프로세스 실패: {str(e)}")
+            console.print(f"❌ {category} 카테고리 처리 실패: {str(e)}")
+            return {'category': category, 'success': False, 'issues': 0, 'articles': 0}
+
+    def run_clustering(self) -> bool:
+        """하이브리드 방식으로 전체 카테고리 클러스터링 실행"""
+        try:
+            console.print("=" * 80)
+            console.print("🚀 전체 정치 카테고리 클러스터링 시작 (하이브리드 방식)")
+            console.print("=" * 80)
+            
+            total_results = []
+            
+            # 1단계: 대용량 카테고리 순차 처리
+            console.print("\n🔄 1단계: 대용량 카테고리 순차 처리")
+            for category in self.categories["large"]:
+                result = self.process_single_category(category)
+                total_results.append(result)
+            
+            # 2단계: 소량 카테고리 병렬 처리 (추후 구현)
+            console.print("\n🔄 2단계: 소량 카테고리 처리")
+            for category in self.categories["small"]:
+                result = self.process_single_category(category)
+                total_results.append(result)
+            
+            # 최종 결과 집계
+            total_issues = sum(r['issues'] for r in total_results)
+            total_articles = sum(r['articles'] for r in total_results)
+            successful_categories = [r['category'] for r in total_results if r['success']]
+            
+            console.print("\n" + "=" * 80)
+            console.print("🎉 전체 카테고리 클러스터링 완료!")
+            console.print(f"✅ 처리된 카테고리: {len(successful_categories)}개")
+            console.print(f"✅ 생성된 총 이슈: {total_issues}개")
+            console.print(f"✅ 업데이트된 총 기사: {total_articles}개")
+            console.print("\n📊 카테고리별 결과:")
+            
+            for result in total_results:
+                status = "✅" if result['success'] else "❌"
+                console.print(f"   {status} {result['category']}: {result['issues']}개 이슈, {result['articles']}개 기사")
+            
+            console.print("=" * 80)
+            
+            return len(successful_categories) > 0
+            
+        except Exception as e:
+            console.print(f"❌ 전체 클러스터링 프로세스 실패: {str(e)}")
             return False
 
 
 def main():
     """메인 함수"""
     try:
-        clusterer = ArticleClusterer()
+        clusterer = MultiCategoryClusterer()
         success = clusterer.run_clustering()
         
         if success:
-            console.print("\n✅ 클러스터링 성공!")
+            console.print("\n✅ 전체 카테고리 클러스터링 성공!")
         else:
-            console.print("\n❌ 클러스터링 실패!")
+            console.print("\n❌ 전체 카테고리 클러스터링 실패!")
             
     except KeyboardInterrupt:
         console.print("\n\n👋 사용자에 의해 중단되었습니다.")
