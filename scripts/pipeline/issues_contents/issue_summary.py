@@ -3,7 +3,7 @@
 이슈 요약 생성 스크립트
 - 클러스터 내 대표 기사 3개 선정 (centroid 기반 cosine similarity)
 - LLM을 활용한 이슈 종합 요약 생성 (300자 내외)
-- OpenAI GPT-4o-mini 모델 사용
+- OpenAI GPT-4o 모델 사용 (최신 모델)
 """
 
 import sys
@@ -173,7 +173,7 @@ class IssueSummaryGenerator:
 
             # OpenAI API 호출
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "당신은 한국 정치 뉴스 전문 요약 작성자입니다. 객관적이고 균형잡힌 시각으로 이슈를 종합 분석해주세요."},
                     {"role": "user", "content": prompt}
