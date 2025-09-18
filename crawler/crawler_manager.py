@@ -23,9 +23,9 @@ from config.crawler_config import CRAWLER_PARAMS, CRAWLER_GROUPS, PLAYWRIGHT_CRA
 # 기존 크롤러들
 from .html_parsing.ohmynews_politics import OhmyNewsPoliticsCollector
 from .html_parsing.yonhap_politics import YonhapPoliticsCollector
-from .api_based.hani_politics import HaniPoliticsCrawler
-from .api_based.newsone_politics import NewsonePoliticsCollector
-from .api_based.khan_politics import KhanPoliticsCollector
+from .html_parsing.hani_politics import HaniPoliticsCrawler
+from .html_parsing.newsone_politics import NewsonePoliticsCrawler
+from .html_parsing.khan_politics import KhanPoliticsCollector
 from .html_parsing.donga_politics import DongaPoliticsCollector
 from .html_parsing.joongang_politics import JoongangPoliticsCollector
 from .html_parsing.newsis_politics import NewsisPoliticsCollector

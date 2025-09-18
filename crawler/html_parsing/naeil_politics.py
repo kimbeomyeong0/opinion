@@ -256,22 +256,21 @@ class NaeilPoliticsCollector:
             article["byline"] = ""
 
     def _extract_content_text(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """내일신문 본문 텍스트 추출 (개선된 버전)"""
+        """내일신문 본문 텍스트 추출 (p 태그만 추출)"""
         try:
-            # 1차: .article-view.font-size03 찾기
-            content_container = soup.select_one('.article-view.font-size03')
-            
-            # 2차 폴백: .article-view
-            if not content_container:
-                content_container = soup.select_one('.article-view')
+            # div.article-view 찾기
+            content_container = soup.select_one('div.article-view')
             
             if not content_container:
-                console.print("⚠️ 본문 컨테이너를 찾을 수 없습니다")
+                console.print("⚠️ div.article-view를 찾을 수 없습니다")
                 return {"text": "", "byline": ""}
             
-            # 제외할 요소들 제거
+            # 제외할 요소들 완전 제거
             exclude_selectors = [
-                'script', 'style', 'noscript', 'figure', 'figcaption', 
+                'div.article-subtitle',  # 요약/부제목
+                'div.article-photo-wrap',  # 사진 영역
+                'figure', 'figcaption',  # 이미지 및 설명
+                'script', 'style', 'noscript',
                 'iframe', 'aside', '[class^=ad-]', '[data-svcad]'
             ]
             
@@ -280,59 +279,50 @@ class NaeilPoliticsCollector:
                 for el in elements:
                     el.decompose()
             
-            # <br> 태그를 줄바꿈으로 변환
-            for br in content_container.find_all('br'):
-                br.replace_with('\n')
-            
-            # subtitles 수집 (.article-subtitle.type01 > p)
-            subtitles = []
-            subtitle_elements = content_container.select('.article-subtitle.type01 > p')
-            for element in subtitle_elements:
-                text = element.get_text(strip=True)
-                if text:
-                    subtitles.append(text)
-            
-            # .article-subtitle 제거
-            subtitle_containers = content_container.select('.article-subtitle')
-            for container in subtitle_containers:
-                container.decompose()
-            
-            # paragraphs 수집 (컨테이너 직계 <p>)
+            # p 태그만 선택적으로 추출
             paragraphs = []
-            direct_p_elements = content_container.find_all('p', recursive=False)
-            for element in direct_p_elements:
-                text = element.get_text(strip=True)
-                if text and len(text) > 10:  # 10자 이상인 문단만
+            p_elements = content_container.find_all('p')
+            
+            for p in p_elements:
+                text = p.get_text(strip=True)
+                
+                # HTML 엔티티 처리
+                text = re.sub(r'&nbsp;', ' ', text)  # &nbsp; 제거
+                text = re.sub(r'\s+', ' ', text)  # 연속 공백 정규화
+                text = text.strip()
+                
+                # 불필요한 텍스트 필터링
+                if (text and 
+                    len(text) > 5 and  # 5자 이상
+                    not re.match(r'^[\s\u00A0]*$', text) and  # 공백만 있는 문단 제외
+                    not ('기자' in text and '@' in text) and  # 기자명/이메일 제외
+                    not (text.endswith('기자') and len(text.split()) <= 3) and  # "○○ 기자" 형태 제외
+                    not text.startswith('저작권') and  # 저작권 문구 제외
+                    not text.startswith('Copyright')):  # 저작권 문구 제외
                     paragraphs.append(text)
             
-            # &nbsp;와 중복 공백/개행 정리
-            for i, paragraph in enumerate(paragraphs):
-                paragraphs[i] = re.sub(r'&nbsp;', ' ', paragraph)
-                paragraphs[i] = re.sub(r'\s+', ' ', paragraphs[i]).strip()
-            
-            # 마지막 단락이 … 기자 또는 이메일(@)을 포함하면 byline으로 이동
+            # 기자명이 포함된 마지막 문단 별도 처리
             byline = ""
             if paragraphs:
                 last_paragraph = paragraphs[-1]
-                if ('…' in last_paragraph and '기자' in last_paragraph) or '@' in last_paragraph:
+                # 기자명 패턴 확인 (이름 + 기자, 또는 이메일 포함)
+                if ('기자' in last_paragraph and 
+                    (re.search(r'\w+\s*기자', last_paragraph) or '@' in last_paragraph)):
                     byline = last_paragraph
                     paragraphs.pop()
             
-            # 텍스트 결합
-            if subtitles and paragraphs:
-                combined_text = '\n\n'.join(subtitles + [''] + paragraphs)
-            elif subtitles:
-                combined_text = '\n\n'.join(subtitles)
-            elif paragraphs:
-                combined_text = '\n\n'.join(paragraphs)
-            else:
-                combined_text = ""
+            if not paragraphs:
+                console.print("⚠️ 추출할 본문이 없습니다")
+                return {"text": "", "byline": byline}
             
-            # 공백 정규화
-            combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text).strip()
+            # 문단들을 줄바꿈으로 연결
+            combined_text = '\n\n'.join(paragraphs)
+            
+            # 최종 정규화
+            combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text)  # 연속 줄바꿈 정규화
             
             return {
-                "text": combined_text,
+                "text": combined_text.strip(),
                 "byline": byline
             }
             
@@ -512,10 +502,17 @@ class NaeilPoliticsCollector:
             # 중복 제거 및 배치 준비
             new_articles = []
             skip_count = 0
+            short_content_count = 0
             
             for article in self.articles:
                 if article["url"] in existing_urls:
                     skip_count += 1
+                    continue
+                
+                # 본문 길이 체크 (20자 미만 제외)
+                content = article.get('content', '')
+                if len(content.strip()) < 20:
+                    short_content_count += 1
                     continue
                     
                 # 기사 데이터 파싱
@@ -530,7 +527,7 @@ class NaeilPoliticsCollector:
             else:
                 console.print("⚠️ 저장할 새 기사가 없습니다.")
                 
-            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}")
+            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}, 짧은본문 제외 {short_content_count}")
             
         except Exception as e:
             console.print(f"❌ DB 저장 중 치명적 오류: {str(e)}")

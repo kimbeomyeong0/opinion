@@ -563,13 +563,20 @@ class ChosunPoliticsCollector:
         except Exception as e:
             console.print(f"⚠️ 중복 체크 중 오류: {e}")
 
-        success, failed, skipped = 0, 0, 0
+        success, failed, skipped, short_content_count = 0, 0, 0, 0
         
         for i, art in enumerate(self.articles, 1):
             try:
                 if art["url"] in existing_urls:
                     console.print(f"⚠️ [{i}/{len(self.articles)}] 중복 기사 스킵: {art['title'][:30]}...")
                     skipped += 1
+                    continue
+                
+                # 본문 길이 체크 (20자 미만 제외)
+                content = art.get('content', '')
+                if len(content.strip()) < 20:
+                    short_content_count += 1
+                    console.print(f"⚠️ [{i}/{len(self.articles)}] 짧은 본문 제외: {art['title'][:30]}...")
                     continue
 
                 published_at_str = None
@@ -606,6 +613,7 @@ class ChosunPoliticsCollector:
         console.print(f"  ✅ 성공: {success}개")
         console.print(f"  ❌ 실패: {failed}개") 
         console.print(f"  ⚠️ 중복 스킵: {skipped}개")
+        console.print(f"  📏 짧은본문 제외: {short_content_count}개")
         console.print(f"  📈 성공률: {(success / len(self.articles) * 100):.1f}%")
 
     async def cleanup(self):

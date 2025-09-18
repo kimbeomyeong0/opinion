@@ -526,7 +526,7 @@ class NewsisFastCollector:
             else:
                 console.print("⚠️ 저장할 새 기사가 없습니다.")
                 
-            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}")
+            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}, 짧은본문 제외 {short_content_count}")
             
         except Exception as e:
             console.print(f"❌ DB 저장 중 치명적 오류: {str(e)}")

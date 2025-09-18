@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-문화일보 정치 기사 크롤러 (HTML 파싱 기반)
-- _CP/43 API를 사용하여 기사 목록 수집
-- 정치 섹션 기사만 필터링
-- 본문은 httpx로 별도 수집
+경향신문 정치 기사 크롤러 (HTML 파싱 기반)
+- HTML 파싱으로 완전 재작성하여 속도 대폭 개선
+- httpx + BeautifulSoup 사용
+- 병렬 처리로 성능 최적화
 """
 
 import asyncio
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from urllib.parse import urljoin, urlparse
 import httpx
@@ -27,13 +27,12 @@ from utils.supabase_manager import SupabaseManager
 console = Console()
 KST = pytz.timezone("Asia/Seoul")
 
-
-class MunhwaPoliticsCollector:
+class KhanPoliticsCollector:
     def __init__(self):
-        self.base_url = "https://www.munhwa.com"
-        self.api_base = "https://www.munhwa.com/_CP/43"
-        self.media_name = "문화일보"
-        self.media_bias = "left"  # 진보 성향으로 변경
+        self.base_url = "https://www.khan.co.kr"
+        self.politics_url = "https://www.khan.co.kr/politics"
+        self.media_name = "경향신문"
+        self.media_bias = "center-left"
         self.supabase_manager = SupabaseManager()
         self.articles: List[Dict] = []
         
@@ -49,18 +48,17 @@ class MunhwaPoliticsCollector:
         
         # 동시성 제한 설정
         self.semaphore = asyncio.Semaphore(10)
-
-    def _get_page_urls(self, num_pages: int = 10) -> List[str]:
-        """API 페이지 URL 목록 생성 (page=1, 2, 3...)"""
+    def _get_page_urls(self, num_pages: int = 15) -> List[str]:
+        """페이지 URL 목록 생성"""
         urls = []
         for page in range(1, num_pages + 1):
-            url = f"{self.api_base}?page={page}&domainId=1000&mKey=politicsAll&keyword=&term=2&type=C"
+            url = f"{self.politics_url}?page={page}"
             urls.append(url)
         return urls
 
     async def _get_page_articles(self, page_url: str, page_num: int) -> List[Dict]:
         """특정 페이지에서 기사 목록 수집"""
-        console.print(f"📡 페이지 {page_num}: API 호출 중...")
+        console.print(f"📡 페이지 {page_num}: HTML 파싱 중...")
 
         async with self.semaphore:
             try:
@@ -75,63 +73,72 @@ class MunhwaPoliticsCollector:
                     
                     articles = []
                     
-                    # 기사 목록 추출
-                    list_items = soup.find_all('li', attrs={'data-li': True})
+                    # 기사 목록 추출 (ul#recentList li article)
+                    recent_list = soup.find('ul', id='recentList')
+                    if not recent_list:
+                        console.print(f"❌ 페이지 {page_num}: recentList를 찾을 수 없습니다")
+                        return []
                     
-                    for li in list_items:
-                        # a 태그 찾기
-                        link = li.find('a', href=True)
-                        if not link:
+                    article_items = recent_list.find_all('li')
+                    
+                    for li in article_items:
+                        article_element = li.find('article')
+                        if not article_element:
                             continue
                             
-                        href = link.get('href')
-                        if not href or not href.startswith('/article/'):
-                            continue
-                        
-                        # 상대 URL을 절대 URL로 변환
-                        full_url = urljoin(self.base_url, href)
-                        
-                        # 제목 추출
-                        title_element = li.find('h4', class_='title')
-                        if title_element:
-                            title_link = title_element.find('a')
-                            if title_link:
-                                title = title_link.get_text(strip=True)
+                        try:
+                            # 제목과 URL 추출 (div > a)
+                            link = article_element.find('a', href=True)
+                            if not link:
+                                continue
+                                
+                            href = link.get('href')
+                            if not href:
+                                continue
+                            
+                            # 상대 URL을 절대 URL로 변환
+                            if href.startswith('http'):
+                                full_url = href
                             else:
-                                title = title_element.get_text(strip=True)
-                        else:
+                                full_url = urljoin(self.base_url, href)
+                            
                             title = link.get_text(strip=True)
+                            
+                            # 요약 추출 (p.desc)
+                            desc_element = article_element.find('p', class_='desc')
+                            description = desc_element.get_text(strip=True) if desc_element else ""
+                            
+                            # 날짜 추출 (p.date)
+                            date_element = article_element.find('p', class_='date')
+                            date_text = date_element.get_text(strip=True) if date_element else ""
+                            published_at = self._parse_relative_time(date_text)
+                            
+                            # 이미지 정보 추출 (선택적)
+                            img_element = article_element.find('img')
+                            image_url = ""
+                            image_alt = ""
+                            if img_element:
+                                image_url = img_element.get('src', '')
+                                image_alt = img_element.get('alt', '')
+                                if image_url and not image_url.startswith('http'):
+                                    image_url = urljoin(self.base_url, image_url)
+                            
+                            if title and len(title) > 10:
+                                article = {
+                                    'title': title,
+                                    'url': full_url,
+                                    'content': '',
+                                    'published_at': published_at,
+                                    'description': description,
+                                    'image_url': image_url,
+                                    'image_alt': image_alt
+                                }
+                                articles.append(article)
+                                console.print(f"📰 발견: {title[:50]}...")
                         
-                        # 날짜 추출
-                        date_element = li.find('span', class_='date')
-                        published_at = ""
-                        if date_element:
-                            date_text = date_element.get_text(strip=True)
-                            published_at = self._parse_datetime(date_text)
-                        
-                        # 기자 정보 추출
-                        writer_element = li.find('span', class_='writer')
-                        author = writer_element.get_text(strip=True) if writer_element else ""
-                        
-                        # 요약 추출 (있는 경우)
-                        desc_element = li.find('p', class_='description')
-                        description = ""
-                        if desc_element:
-                            desc_link = desc_element.find('a')
-                            if desc_link:
-                                description = desc_link.get_text(strip=True)
-                        
-                        if title and len(title) > 10:
-                            article = {
-                                'title': title,
-                                'url': full_url,
-                                'content': '',
-                                'published_at': published_at,
-                                'author': author,
-                                'description': description
-                            }
-                            articles.append(article)
-                            console.print(f"📰 발견: {title[:50]}...")
+                        except Exception as e:
+                            console.print(f"⚠️ 기사 아이템 처리 중 오류: {str(e)}")
+                            continue
                     
                     console.print(f"📄 페이지 {page_num}: {len(articles)}개 기사 수집")
                     return articles
@@ -140,7 +147,42 @@ class MunhwaPoliticsCollector:
                 console.print(f"❌ 페이지 {page_num} 처리 중 오류: {str(e)}")
                 return []
 
-    async def collect_articles_parallel(self, num_pages: int = 10):
+    def _parse_relative_time(self, time_text: str) -> str:
+        """상대 시간 텍스트를 UTC ISO 형식으로 변환"""
+        try:
+            if not time_text:
+                return datetime.now(pytz.UTC).isoformat()
+            
+            now = datetime.now(KST)
+            
+            # "26분 전", "2시간 전", "1일 전" 등 처리
+            if "분 전" in time_text:
+                minutes = int(re.search(r'(\d+)분', time_text).group(1))
+                target_time = now - timedelta(minutes=minutes)
+            elif "시간 전" in time_text:
+                hours = int(re.search(r'(\d+)시간', time_text).group(1))
+                target_time = now - timedelta(hours=hours)
+            elif "일 전" in time_text:
+                days = int(re.search(r'(\d+)일', time_text).group(1))
+                target_time = now - timedelta(days=days)
+            elif "주 전" in time_text:
+                weeks = int(re.search(r'(\d+)주', time_text).group(1))
+                target_time = now - timedelta(weeks=weeks)
+            else:
+                # 절대 시간 형식 시도 (YYYY.MM.DD HH:MM)
+                if re.match(r'\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}', time_text):
+                    target_time = datetime.strptime(time_text, "%Y.%m.%d %H:%M")
+                    target_time = KST.localize(target_time)
+                else:
+                    target_time = now
+            
+            return target_time.astimezone(pytz.UTC).isoformat()
+            
+        except Exception as e:
+            console.print(f"⚠️ 시간 파싱 실패: {time_text} - {str(e)}")
+            return datetime.now(pytz.UTC).isoformat()
+
+    async def collect_articles_parallel(self, num_pages: int = 15):
         """기사 수집 (병렬 처리)"""
         console.print(f"📄 {num_pages}개 페이지에서 기사 수집 시작 (병렬 처리)...")
         
@@ -201,9 +243,9 @@ class MunhwaPoliticsCollector:
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # 발행시간 추출 (API에서 가져온 것이 없으면)
-            if not article.get("published_at"):
-                published_at = self._extract_published_at(soup)
+            # 발행시간 추출 (더 정확한 시간이 있으면 업데이트)
+            published_at = self._extract_published_at(soup)
+            if published_at:
                 article["published_at"] = published_at
             
             # 본문 추출
@@ -211,7 +253,7 @@ class MunhwaPoliticsCollector:
             article["content"] = content
             
             console.print(f"✅ [{index}] 완료: {len(content)}자")
-            
+                
         except Exception as e:
             console.print(f"❌ [{index}] 실패: {str(e)[:50]}...")
             article["content"] = ""
@@ -221,25 +263,35 @@ class MunhwaPoliticsCollector:
     def _extract_published_at(self, soup: BeautifulSoup) -> str:
         """발행시간 추출"""
         try:
-            # meta 태그에서 추출
+            # 1. time 태그에서 추출
+            time_element = soup.find('time', datetime=True)
+            if time_element:
+                return self._parse_datetime(time_element.get('datetime', ''))
+            
+            # 2. meta 태그에서 추출
             meta_date = soup.find('meta', property='article:published_time')
             if meta_date:
                 return self._parse_datetime(meta_date.get('content', ''))
             
-            # 기타 날짜 선택자들 시도
+            # 3. 기사 날짜 영역에서 추출
             date_selectors = [
-                '.date',
-                '.publish-date',
-                '.article-date',
-                '[class*="date"]'
+                            'a[title*="기사 입력/수정일"]',
+                            '.article-date',
+                            '.date',
+                '.publish_date'
             ]
             
             for selector in date_selectors:
                 element = soup.select_one(selector)
                 if element:
-                    text = element.get_text(strip=True)
-                    if text and re.search(r'\d{4}[-/]\d{2}[-/]\d{2}', text):
-                        return self._parse_datetime(text)
+                    # 입력/수정 시간 구분하여 추출
+                    paragraphs = element.find_all('p')
+                    for p in paragraphs:
+                        text = p.get_text(strip=True)
+                        if '입력' in text:
+                            time_text = text.replace('입력', '').strip()
+                            if time_text:
+                                return self._parse_datetime(time_text)
             
             return datetime.now(pytz.UTC).isoformat()
             
@@ -248,59 +300,52 @@ class MunhwaPoliticsCollector:
             return datetime.now(pytz.UTC).isoformat()
 
     def _extract_content_text(self, soup: BeautifulSoup) -> str:
-        """문화일보 본문 텍스트 추출 (p.text-l만 추출)"""
+        """경향신문 본문 텍스트 추출 (p.content_text만 추출)"""
         try:
-            # #article-body 컨테이너 찾기
-            content_container = soup.select_one('#article-body')
-            
-            if not content_container:
-                console.print("⚠️ 본문 컨테이너를 찾을 수 없습니다")
+            # #articleBody 찾기
+            article_body = soup.find('div', id='articleBody')
+            if not article_body:
+                console.print("⚠️ #articleBody를 찾을 수 없습니다")
                 return ""
             
             # 제외할 요소들 완전 제거
             exclude_selectors = [
-                'script', 'style', 'noscript', 
-                '.article-photo-wrap', '.article-subtitle',  # 부제목 제외
-                'figure', 'figcaption', 
-                '[data-svcad]', '[id^=svcad_]', '[id*=svcad]',  # 광고 영역 강화
-                '[class^=ad-]', '[class*=ad-]', 
-                'ins', 'iframe', 'div[id^="svcad"]'
+                'div.editor-subtitle',  # 부제목
+                'div.art_photo',  # 사진 영역
+                'p.caption',  # 사진 설명
+                'div[class*="banner-article"]',  # 광고 배너 (banner-article-left, banner-article-right 등)
+                'div.srch-kw',  # 관련 키워드
+                'div[class*="banner"]', 'div[class*="ad"]', 'div[class*="advertisement"]',
+                'script', 'style', 'noscript', 'iframe'
             ]
             
             for selector in exclude_selectors:
-                elements = content_container.select(selector)
+                elements = article_body.select(selector)
                 for el in elements:
                     el.decompose()
             
-            # p.text-l 태그만 선택적으로 추출
+            # p.content_text 태그만 선택적으로 추출
             paragraphs = []
-            paragraph_elements = content_container.select('p.text-l')
+            content_paragraphs = article_body.select('p.content_text')
             
-            for element in paragraph_elements:
-                # HTML 엔티티 처리를 위해 get_text() 사용
-                text = element.get_text(strip=True)
+            for p in content_paragraphs:
+                text = p.get_text(strip=True)
                 
-                # 기자명 패턴 제거 (다양한 형태)
-                text = re.sub(r'…\s*\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
-                text = re.sub(r'\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
-                text = re.sub(r'기자\s*\w+\s*$', '', text, flags=re.MULTILINE)
+                # HTML 엔티티 처리 및 정규화
+                text = re.sub(r'&nbsp;', ' ', text)  # &nbsp; 제거
+                text = re.sub(r'\s+', ' ', text)  # 연속 공백 정규화
+                text = text.strip()
                 
-                # 의미있는 텍스트만 추가 (10자 이상)
-                if text and len(text.strip()) > 10:
-                    paragraphs.append(text.strip())
-            
-            # p.text-l이 없는 경우 일반 p 태그 시도 (fallback)
-            if not paragraphs:
-                console.print("⚠️ p.text-l을 찾을 수 없어 일반 p 태그 시도")
-                all_p_elements = content_container.find_all('p')
-                for element in all_p_elements:
-                    text = element.get_text(strip=True)
-                    # 기자명 패턴 제거
-                    text = re.sub(r'…\s*\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
-                    text = re.sub(r'\w+\s*기자\s*$', '', text, flags=re.MULTILINE)
-                    
-                    if text and len(text.strip()) > 20:  # fallback은 더 긴 텍스트만
-                        paragraphs.append(text.strip())
+                # 필터링: 기자명, 이메일, 출처 제거
+                if (text and 
+                    len(text) > 10 and  # 10자 이상
+                    not re.search(r'[가-힣]+\s*기자', text) and  # 기자명 제외
+                    not re.search(r'[가-힣]+\s*특파원', text) and  # 특파원 제외
+                    not re.search(r'[가-힣]+\s*통신원', text) and  # 통신원 제외
+                    '@' not in text and  # 이메일 제외
+                    '[출처:' not in text and  # 출처 제외
+                    '[경향신문]' not in text):  # 출처 제외
+                    paragraphs.append(text)
             
             if not paragraphs:
                 console.print("⚠️ 추출할 본문이 없습니다")
@@ -309,10 +354,7 @@ class MunhwaPoliticsCollector:
             # 문단들을 줄바꿈으로 연결
             combined_text = '\n\n'.join(paragraphs)
             
-            # HTML 엔티티 및 공백 정규화
-            combined_text = re.sub(r'&nbsp;', ' ', combined_text)  # &nbsp; 제거
-            combined_text = re.sub(r'&[a-zA-Z]+;', ' ', combined_text)  # 기타 HTML 엔티티
-            combined_text = re.sub(r'\s+', ' ', combined_text)  # 연속 공백 정규화
+            # 최종 정규화
             combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text)  # 연속 줄바꿈 정규화
             
             return combined_text.strip()
@@ -326,24 +368,24 @@ class MunhwaPoliticsCollector:
         try:
             clean_time = datetime_str.strip()
             
-            # ISO 형식 (2025-09-15T18:46:30+09:00)
+            # ISO 형식 (2025-09-18T14:07:01+09:00)
             if 'T' in clean_time:
                 if '+' in clean_time:
                     published_at = datetime.fromisoformat(clean_time)
                     return published_at.astimezone(pytz.UTC).isoformat()
-                else:
+            else:
                     published_at = datetime.fromisoformat(clean_time.replace('Z', '+00:00'))
                     return published_at.isoformat()
             
-            # 일반 형식 (2025-09-15 18:46)
-            if re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$', clean_time):
-                kst_time = datetime.strptime(clean_time, "%Y-%m-%d %H:%M")
+            # 일반 형식 (2025.09.18 14:07)
+            if re.match(r'^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}$', clean_time):
+                kst_time = datetime.strptime(clean_time, "%Y.%m.%d %H:%M")
                 kst_tz = pytz.timezone("Asia/Seoul")
                 kst_dt = kst_tz.localize(kst_time)
                 return kst_dt.astimezone(pytz.UTC).isoformat()
             
             return datetime.now(pytz.UTC).isoformat()
-                
+            
         except Exception as e:
             console.print(f"⚠️ 날짜 파싱 실패: {clean_time} - {str(e)}")
             return datetime.now(pytz.UTC).isoformat()
@@ -437,11 +479,11 @@ class MunhwaPoliticsCollector:
                 except:
                     continue
             return success_count
-
-    async def run(self, num_pages: int = 10):
+        
+    async def run(self, num_pages: int = 15):
         """실행"""
         try:
-            console.print(f"🚀 문화일보 정치 기사 크롤링 시작 (최대 {num_pages}페이지)")
+            console.print(f"🚀 경향신문 정치 기사 크롤링 시작 (최대 {num_pages}페이지)")
             
             # 1. 기사 목록 수집 (병렬 처리)
             await self.collect_articles_parallel(num_pages)
@@ -463,10 +505,9 @@ class MunhwaPoliticsCollector:
         except Exception as e:
             console.print(f"❌ 크롤링 중 오류 발생: {str(e)}")
 
-
 async def main():
-    collector = MunhwaPoliticsCollector()
-    await collector.run(num_pages=13)  # 13페이지에서 각각 12개씩 총 156개 수집
+    collector = KhanPoliticsCollector()
+    await collector.run(num_pages=15)  # 15페이지에서 각각 10개씩 총 150개 기사 수집
 
 if __name__ == "__main__":
     asyncio.run(main())

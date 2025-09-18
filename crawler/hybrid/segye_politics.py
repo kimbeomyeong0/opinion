@@ -259,28 +259,25 @@ class SegyePoliticsCollector:
             return datetime.now(pytz.UTC).isoformat()
 
     def _extract_content_text(self, soup: BeautifulSoup) -> str:
-        """세계일보 본문 텍스트 추출 (개선된 버전)"""
+        """세계일보 본문 텍스트 추출 (p 태그만 추출)"""
         try:
-            # 1차: #article_txt > article.viewBox2 찾기
-            content_container = soup.select_one('#article_txt > article.viewBox2')
-            
-            # 2차 폴백: #article_txt
-            if not content_container:
-                content_container = soup.select_one('#article_txt')
-            
-            # 3차 폴백: [itemprop="articleBody"]
-            if not content_container:
-                content_container = soup.select_one('[itemprop="articleBody"]')
+            # article.viewBox2 찾기
+            content_container = soup.select_one('article.viewBox2')
             
             if not content_container:
-                console.print("⚠️ 본문 컨테이너를 찾을 수 없습니다")
+                console.print("⚠️ article.viewBox2를 찾을 수 없습니다")
                 return ""
             
-            # 제외할 요소들 제거
+            # 제외할 요소들 완전 제거
             exclude_selectors = [
-                'script', 'style', 'noscript', 'aside', 
-                'ins.adsbygoogle', 'figure', 'figcaption', 
-                'iframe', '.newsct_journalist', '.copyright', 
+                'em.precis',  # 요약문
+                'figure',  # 이미지 영역
+                'figcaption',  # 이미지 설명
+                'aside',  # 광고 영역
+                '.newsct_journalist',  # 기자정보
+                'p.copyright',  # 저작권 문구
+                'script', 'style', 'noscript',
+                'ins.adsbygoogle', 'iframe',
                 '#outerDiv'
             ]
             
@@ -289,58 +286,42 @@ class SegyePoliticsCollector:
                 for el in elements:
                     el.decompose()
             
-            # <br> 태그를 줄바꿈으로 변환
-            for br in content_container.find_all('br'):
-                br.replace_with('\n')
-            
-            # &nbsp; 등 비가시 공백 제거
-            import html
-            text_content = str(content_container)
-            text_content = html.unescape(text_content)
-            text_content = re.sub(r'&nbsp;', ' ', text_content)
-            
-            # 다시 BeautifulSoup으로 파싱
-            clean_container = BeautifulSoup(text_content, 'html.parser')
-            
-            # lead 추출 (em.precis)
-            lead_element = clean_container.find('em', class_='precis')
-            lead_text = lead_element.get_text(strip=True) if lead_element else ""
-            
-            # 본문 텍스트 추출
+            # p 태그만 선택적으로 추출
             paragraphs = []
+            p_elements = content_container.find_all('p')
             
-            # <p> 요소의 텍스트 수집
-            for p in clean_container.find_all('p'):
+            for p in p_elements:
                 text = p.get_text(strip=True)
-                if text and len(text) > 10:  # 10자 이상인 문단만
+                
+                # HTML 엔티티 처리
+                import html
+                text = html.unescape(text)
+                text = re.sub(r'&nbsp;', ' ', text)  # &nbsp; 제거
+                text = re.sub(r'\s+', ' ', text)  # 연속 공백 정규화
+                text = text.strip()
+                
+                # 불필요한 텍스트 필터링
+                if (text and 
+                    len(text) > 5 and  # 5자 이상
+                    not text.startswith('저작권') and  # 저작권 문구 제외
+                    not text.startswith('Copyright') and  # 저작권 문구 제외
+                    not text.startswith('ⓒ') and  # 저작권 기호 제외
+                    not re.match(r'^[\s\u00A0]*$', text) and  # 공백만 있는 문단 제외
+                    '기자' not in text[-10:] and  # 끝에 기자명 있는 문단 제외
+                    '@' not in text):  # 이메일 있는 문단 제외
                     paragraphs.append(text)
             
-            # 컨테이너 직계/후손의 텍스트 노드 수집
             if not paragraphs:
-                # 전체 텍스트에서 추출
-                full_text = clean_container.get_text()
-                # 공백 정리 및 문단 분리
-                lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-                paragraphs = [line for line in lines if len(line) > 10]
+                console.print("⚠️ 추출할 본문이 없습니다")
+                return ""
             
-            # 텍스트 결합
-            if paragraphs:
-                # 문단 사이에 빈 줄 하나 추가
-                combined_text = '\n\n'.join(paragraphs)
-                # 연속된 공백 정리
-                combined_text = re.sub(r'\s+', ' ', combined_text)
-                # 빈 줄 정리
-                combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text).strip()
-                
-                # lead가 있으면 앞에 추가
-                if lead_text:
-                    final_text = f"{lead_text}\n\n{combined_text}"
-                else:
-                    final_text = combined_text
-                
-                return final_text
+            # 문단들을 줄바꿈으로 연결
+            combined_text = '\n\n'.join(paragraphs)
             
-            return ""
+            # 최종 정규화
+            combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text)  # 연속 줄바꿈 정규화
+            
+            return combined_text.strip()
             
         except Exception as e:
             console.print(f"⚠️ 본문 추출 실패: {str(e)}")
@@ -405,10 +386,17 @@ class SegyePoliticsCollector:
             # 중복 제거 및 배치 준비
             new_articles = []
             skip_count = 0
+            short_content_count = 0
             
             for article in self.articles:
                 if article["url"] in existing_urls:
                     skip_count += 1
+                    continue
+                
+                # 본문 길이 체크 (20자 미만 제외)
+                content = article.get('content', '')
+                if len(content.strip()) < 20:
+                    short_content_count += 1
                     continue
                     
                 # 기사 데이터 파싱
@@ -423,7 +411,7 @@ class SegyePoliticsCollector:
             else:
                 console.print("⚠️ 저장할 새 기사가 없습니다.")
                 
-            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}")
+            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}, 짧은본문 제외 {short_content_count}")
             
         except Exception as e:
             console.print(f"❌ DB 저장 중 치명적 오류: {str(e)}")

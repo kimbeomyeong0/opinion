@@ -476,12 +476,20 @@ class SisainPoliticsCollector:
                 
                 saved_count = 0
                 skipped_count = 0
+                short_content_count = 0
                 
                 for article in articles:
                     try:
                         # 필터링된 기사는 건너뛰기
                         if not article.get("content") or article["content"] == "":
                             skipped_count += 1
+                            continue
+                        
+                        # 본문 길이 체크 (20자 미만 제외)
+                        content = article.get('content', '')
+                        if len(content.strip()) < 20:
+                            short_content_count += 1
+                            console.print(f"⚠️ 짧은 본문 제외: {article.get('title', '')[:30]}...")
                             continue
                         
                         # published_at 설정 (KST 기준)
@@ -516,7 +524,7 @@ class SisainPoliticsCollector:
                         console.print(f"❌ 기사 저장 실패: {str(e)[:50]}...")
                         skipped_count += 1
                 
-                console.print(f"📊 저장 결과: 성공 {saved_count}, 스킵 {skipped_count}")
+                console.print(f"📊 저장 결과: 성공 {saved_count}, 스킵 {skipped_count}, 짧은본문 제외 {short_content_count}")
                 console.print("🎉 크롤링 완료!")
                 
         except KeyboardInterrupt:

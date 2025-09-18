@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
 한겨레 정치 섹션 크롤러
-- API 기반으로 기사 목록 및 본문 수집
+- HTML 파싱으로 기사 목록 및 본문 수집
 - 페이지네이션 지원
-- HTML 파싱으로 본문 추출
+- BeautifulSoup을 사용한 HTML 파싱
 """
 
 import sys
 import os
 import re
-import json
 import time
 import requests
 from datetime import datetime
@@ -31,7 +30,6 @@ class HaniPoliticsCrawler:
         """초기화"""
         self.base_url = "https://www.hani.co.kr"
         self.politics_url = "https://www.hani.co.kr/arti/politics"
-        self.api_base_url = "https://www.hani.co.kr/_next/data/RJLhj-Yk0mGbw6YoyvYyz/arti/politics.json"
         
         self.supabase_manager = SupabaseManager()
         if not self.supabase_manager.client:
@@ -61,7 +59,7 @@ class HaniPoliticsCrawler:
     
     def fetch_articles_page(self, page: int) -> List[Dict[str, Any]]:
         """
-        특정 페이지의 기사 목록 조회
+        특정 페이지의 기사 목록 조회 (HTML 파싱)
         
         Args:
             page: 페이지 번호 (1부터 시작)
@@ -70,45 +68,66 @@ class HaniPoliticsCrawler:
             List[Dict]: 기사 목록
         """
         try:
-            # API URL 구성
-            api_url = f"{self.api_base_url}?section=politics&page={page}"
+            # 페이지 URL 구성
+            if page == 1:
+                url = self.politics_url
+            else:
+                url = f"{self.politics_url}?page={page}"
             
-            print(f"📡 페이지 {page} 기사 목록 조회 중...")
+            print(f"📡 페이지 {page} 기사 목록 조회 중: {url}")
             
-            response = self.session.get(api_url, timeout=30)
+            response = self.session.get(url, timeout=30)
             response.raise_for_status()
             
-            data = response.json()
+            soup = BeautifulSoup(response.content, 'html.parser')
             
             # 기사 목록 추출
             articles = []
-            if 'pageProps' in data and 'listData' in data['pageProps'] and 'articleList' in data['pageProps']['listData']:
-                articles_data = data['pageProps']['listData']['articleList']
-                
-                for article_data in articles_data:
-                    try:
-                        # published_at 추출
-                        published_at = article_data.get('updateDate', '')
-                        if published_at:
-                            # ISO 형식으로 변환
-                            published_at = published_at.replace('Z', '+00:00')
-                        
+            
+            # 기사 리스트 컨테이너 찾기
+            article_items = soup.select('.ArticleList_item___OGQO')
+            
+            for item in article_items:
+                try:
+                    # 제목 추출
+                    title_element = item.select_one('.BaseArticleCard_title__TVFqt')
+                    title = title_element.get_text(strip=True) if title_element else ""
+                    
+                    # 링크 추출
+                    link_element = item.select_one('.BaseArticleCard_link__Q3YFK')
+                    article_url = ""
+                    if link_element and link_element.get('href'):
+                        href = link_element.get('href')
+                        if href.startswith('/'):
+                            article_url = urljoin(self.base_url, href)
+                        else:
+                            article_url = href
+                    
+                    # 날짜 추출
+                    date_element = item.select_one('.BaseArticleCard_date__4R8Ru')
+                    published_at = ""
+                    if date_element:
+                        date_text = date_element.get_text(strip=True)
+                        try:
+                            # "2025-09-18 15:15" 형식을 ISO 형식으로 변환
+                            dt = datetime.strptime(date_text, '%Y-%m-%d %H:%M')
+                            published_at = dt.isoformat() + '+09:00'
+                        except ValueError:
+                            published_at = ""
+                    
+                    if title and article_url:
                         article = {
-                            'title': article_data.get('title', ''),
-                            'url': article_data.get('url', ''),
+                            'title': title,
+                            'url': article_url,
                             'published_at': published_at,
                             'media_id': self.get_media_outlet_id()
                         }
-                        
-                        # URL이 상대경로인 경우 절대경로로 변환
-                        if article['url'] and not article['url'].startswith('http'):
-                            article['url'] = urljoin(self.base_url, article['url'])
-                        
                         articles.append(article)
+                        print(f"📰 발견: {title}")
                         
-                    except Exception as e:
-                        print(f"⚠️ 기사 데이터 파싱 실패: {str(e)}")
-                        continue
+                except Exception as e:
+                    print(f"⚠️ 기사 데이터 파싱 실패: {str(e)}")
+                    continue
             
             print(f"✅ 페이지 {page}: {len(articles)}개 기사 조회 완료")
             return articles
@@ -147,7 +166,7 @@ class HaniPoliticsCrawler:
     
     def extract_article_content(self, article_url: str) -> str:
         """
-        기사 본문 추출
+        기사 본문 추출 (HTML 파싱)
         
         Args:
             article_url: 기사 URL
@@ -169,7 +188,7 @@ class HaniPoliticsCrawler:
                 print(f"⚠️ article-text div를 찾을 수 없습니다: {article_url}")
                 return ""
             
-            # 제거할 요소들
+            # 제거할 요소들 (불필요한 광고, 오디오 플레이어 등)
             unwanted_selectors = [
                 '[class*="ArticleDetailAudioPlayer"]',
                 '[class*="ArticleDetailContent_adWrap"]',
@@ -179,7 +198,8 @@ class HaniPoliticsCrawler:
                 'script',
                 'style',
                 'noscript',
-                'iframe'
+                'iframe',
+                'img'  # 이미지 제거
             ]
             
             # 불필요한 요소 제거
@@ -192,6 +212,9 @@ class HaniPoliticsCrawler:
             for p in article_text_div.find_all('p', class_='text'):
                 text = self.clean_text(p.get_text())
                 if text and text.strip():  # 공백만 있는 단락 제거
+                    # 기자 정보 제거 (이메일 포함된 문단)
+                    if '@' in text and ('기자' in text or 'reporter' in text.lower()):
+                        continue
                     paragraphs.append(text.strip())
             
             # 단락들을 \n\n로 연결
@@ -293,11 +316,22 @@ class HaniPoliticsCrawler:
             print(f"💾 {len(articles)}개 기사를 데이터베이스에 저장 중...")
             
             success_count = 0
+            short_content_count = 0
+            
             for article in articles:
+                # 본문 길이 체크 (20자 미만 제외)
+                content = article.get('content', '')
+                if len(content.strip()) < 20:
+                    short_content_count += 1
+                    print(f"⚠️ 짧은 본문 제외: {article.get('title', '')[:30]}...")
+                    continue
+                
                 if self.supabase_manager.insert_article(article):
                     success_count += 1
             
             print(f"✅ {success_count}개 기사 저장 완료")
+            if short_content_count > 0:
+                print(f"📏 짧은본문 제외: {short_content_count}개")
             return success_count
             
         except Exception as e:

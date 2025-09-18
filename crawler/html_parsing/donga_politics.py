@@ -740,10 +740,17 @@ class DongaPoliticsCollector:
             # 중복 제거 및 배치 준비
             new_articles = []
             skip_count = 0
+            short_content_count = 0
             
             for article in self.articles:
                 if article["url"] in existing_urls:
                     skip_count += 1
+                    continue
+                
+                # 본문 길이 체크 (20자 미만 제외)
+                content = article.get('content', '')
+                if len(content.strip()) < 20:
+                    short_content_count += 1
                     continue
                     
                 # 기사 데이터 파싱
@@ -758,7 +765,7 @@ class DongaPoliticsCollector:
             else:
                 console.print("⚠️ 저장할 새 기사가 없습니다.")
                 
-            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}")
+            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}, 짧은본문 제외 {short_content_count}")
             
         except Exception as e:
             console.print(f"❌ DB 저장 중 치명적 오류: {str(e)}")

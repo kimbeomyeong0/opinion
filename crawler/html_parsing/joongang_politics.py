@@ -126,107 +126,7 @@ class JoongangPoliticsCollector:
             console.print(f"❌ 페이지 수집 실패: {e}")
             return []
     
-    async def _extract_content(self, url: str) -> dict:
-        """기사 본문 및 발행시간 추출"""
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                
-                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                
-                # 기사 본문 및 발행시간 추출
-                content_data = await page.evaluate("""
-                    () => {
-                        // 발행시간 추출 - <time itemprop="datePublished">의 datetime 속성 사용
-                        let published_at = '';
-                        
-                        // 1. time[itemprop="datePublished"] datetime 속성 시도
-                        const timeElement = document.querySelector('time[itemprop="datePublished"]');
-                        if (timeElement) {
-                            published_at = timeElement.getAttribute('datetime');
-                        }
-                        
-                        // 2. 다른 가능한 시간 선택자들 시도
-                        if (!published_at) {
-                            const timeSelectors = [
-                                'time[datetime]',
-                                'button.btn_datetime span',
-                                '.article_info .date',
-                                '.article_info .time',
-                                '.date_info',
-                                '.article_date',
-                                '.publish_date'
-                            ];
-                            
-                            for (const selector of timeSelectors) {
-                                const element = document.querySelector(selector);
-                                if (element) {
-                                    // datetime 속성이 있으면 우선 사용
-                                    const datetime = element.getAttribute('datetime');
-                                    if (datetime) {
-                                        published_at = datetime;
-                                        break;
-                                    }
-                                    
-                                    // 없으면 텍스트에서 날짜 형식 찾기
-                                    const text = element.textContent || element.innerText || '';
-                                    const trimmed = text.trim();
-                                    if (trimmed.match(/\\d{4}-\\d{2}-\\d{2}/) || 
-                                        trimmed.match(/\\d{4}\\.\\d{2}\\.\\d{2}/) ||
-                                        trimmed.match(/\\d{2}:\\d{2}/)) {
-                                        published_at = trimmed;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // 본문 영역 찾기
-                        const articleBody = document.getElementById('article_body');
-                        if (!articleBody) return { content: '', published_at: published_at };
-                        
-                        // 광고 영역 제거
-                        const adElements = articleBody.querySelectorAll('#ad_art_content_mid, .ad, .advertisement');
-                        adElements.forEach(el => el.remove());
-                        
-                        // <p> 태그들의 텍스트만 추출
-                        const paragraphs = articleBody.querySelectorAll('p');
-                        const contentLines = [];
-                        
-                        paragraphs.forEach(p => {
-                            const text = p.textContent || p.innerText || '';
-                            const trimmedText = text.trim();
-                            
-                            // 기자명/출처 부분 제거
-                            if (trimmedText && 
-                                !trimmedText.includes('기자') && 
-                                !trimmedText.includes('@') &&
-                                !trimmedText.includes('[출처:') &&
-                                !trimmedText.includes('출처:') &&
-                                !trimmedText.includes('정재홍') &&
-                                !trimmedText.includes('hongj@joongang.co.kr') &&
-                                trimmedText.length > 10) {
-                                contentLines.push(trimmedText);
-                            }
-                        });
-                        
-                        // 각 문단을 개행으로 구분하여 결합
-                        const content = contentLines.join('\\n\\n');
-                        
-                        return {
-                            content: content,
-                            published_at: published_at
-                        };
-                    }
-                """)
-                
-                await browser.close()
-                return content_data
-                
-        except Exception as e:
-            console.print(f"❌ 본문 추출 실패 ({url}): {e}")
-            return {"content": "", "published_at": ""}
+    # 이 메서드는 더 이상 사용되지 않습니다. httpx 기반으로 전환되었습니다.
     
     async def _parse_article_data(self, article: dict, content_data: dict) -> dict:
         """기사 데이터 파싱 및 정리"""
@@ -488,38 +388,87 @@ class JoongangPoliticsCollector:
             return datetime.now(pytz.UTC).isoformat()
 
     def _extract_content_text(self, soup: BeautifulSoup) -> str:
-        """본문 텍스트 추출"""
+        """중앙일보 본문 텍스트 추출 (p[data-divno]만 추출)"""
         try:
             # 본문 영역 찾기
             article_body = soup.find('div', id='article_body')
             if not article_body:
+                console.print("⚠️ article_body를 찾을 수 없습니다")
                 return ""
             
-            # 광고 영역 제거
-            ad_elements = article_body.select('#ad_art_content_mid, .ad, .advertisement')
-            for el in ad_elements:
-                el.decompose()
+            # 제외할 요소들 완전 제거
+            exclude_selectors = [
+                '#ad_art_content_mid',  # 광고 영역
+                '.ad', '.advertisement',  # 기타 광고
+                '.ab_photo',  # 이미지 영역 (caption 포함)
+                '.ab_byline',  # 기자명 영역
+                'section.related_link',  # 관련기사 영역
+                '.caption',  # 이미지 설명
+                'div[class*="ad"]',  # 광고 관련 div
+                '.article_photo_wrap'  # 기타 사진 영역
+            ]
             
-            # <p> 태그들의 텍스트만 추출
-            paragraphs = article_body.select('p')
-            content_lines = []
+            for selector in exclude_selectors:
+                elements = article_body.select(selector)
+                for el in elements:
+                    el.decompose()
             
-            for p in paragraphs:
-                text = p.get_text(strip=True)
+            # data-divno 속성이 있는 p 태그만 선택
+            data_divno_paragraphs = article_body.select('p[data-divno]')
+            
+            if not data_divno_paragraphs:
+                console.print("⚠️ data-divno 속성을 가진 p 태그를 찾을 수 없습니다")
+                # fallback: 일반 p 태그 시도
+                all_paragraphs = article_body.select('p')
+                content_lines = []
                 
-                # 기자명/출처 부분 제거
-                if (text and 
-                    not text.find('기자') >= 0 and 
-                    not text.find('@') >= 0 and
-                    not text.find('[출처:') >= 0 and
-                    not text.find('출처:') >= 0 and
-                    not text.find('정재홍') >= 0 and
-                    not text.find('hongj@joongang.co.kr') >= 0 and
-                    len(text) > 10):
-                    content_lines.append(text)
+                for p in all_paragraphs:
+                    text = p.get_text(strip=True)
+                    
+                    # 기자명/출처/이미지 설명 등 제거
+                    if (text and 
+                        not text.find('기자') >= 0 and 
+                        not text.find('@') >= 0 and
+                        not text.find('[출처:') >= 0 and
+                        not text.find('출처:') >= 0 and
+                        not text.find('사진=') >= 0 and
+                        not text.find('그래픽=') >= 0 and
+                        len(text) > 15):  # 더 긴 텍스트만 (fallback)
+                        content_lines.append(text)
+                
+                return '\n\n'.join(content_lines)
             
-            # 각 문단을 개행으로 구분하여 결합
-            return '\n\n'.join(content_lines)
+            # data-divno 순서대로 정렬
+            sorted_paragraphs = []
+            for p in data_divno_paragraphs:
+                divno = p.get('data-divno', '0')
+                try:
+                    divno_int = int(divno)
+                except:
+                    divno_int = 999  # 숫자가 아닌 경우 맨 뒤로
+                
+                text = p.get_text(strip=True)
+                if text and len(text) > 5:  # 의미있는 텍스트만
+                    sorted_paragraphs.append((divno_int, text))
+            
+            # divno 순서대로 정렬
+            sorted_paragraphs.sort(key=lambda x: x[0])
+            
+            # 텍스트만 추출
+            content_lines = [text for _, text in sorted_paragraphs]
+            
+            if not content_lines:
+                console.print("⚠️ 추출할 본문이 없습니다")
+                return ""
+            
+            # 문단들을 줄바꿈으로 연결
+            combined_text = '\n\n'.join(content_lines)
+            
+            # 공백 정규화
+            combined_text = re.sub(r'\s+', ' ', combined_text)  # 연속 공백 정규화
+            combined_text = re.sub(r'\n\s*\n', '\n\n', combined_text)  # 연속 줄바꿈 정규화
+            
+            return combined_text.strip()
             
         except Exception as e:
             console.print(f"⚠️ 본문 추출 실패: {str(e)}")
@@ -590,10 +539,17 @@ class JoongangPoliticsCollector:
             # 중복 제거 및 배치 준비
             new_articles = []
             skip_count = 0
+            short_content_count = 0
             
             for article in self.articles:
                 if article["url"] in existing_urls:
                     skip_count += 1
+                    continue
+                
+                # 본문 길이 체크 (20자 미만 제외)
+                content = article.get('content', '')
+                if len(content.strip()) < 20:
+                    short_content_count += 1
                     continue
                     
                 # 기사 데이터 파싱
@@ -608,7 +564,7 @@ class JoongangPoliticsCollector:
             else:
                 console.print("⚠️ 저장할 새 기사가 없습니다.")
                 
-            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}")
+            console.print(f"\n📊 저장 결과: 성공 {len(new_articles)}, 스킵 {skip_count}, 짧은본문 제외 {short_content_count}")
             
         except Exception as e:
             console.print(f"❌ DB 저장 중 치명적 오류: {str(e)}")
