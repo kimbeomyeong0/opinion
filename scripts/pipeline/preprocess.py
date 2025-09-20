@@ -191,14 +191,31 @@ class FastPreprocessor:
             return None, None, None, None, f"예외 발생: {str(e)}"
     
     def fetch_all_false_articles(self) -> List[Dict[str, Any]]:
-        """is_preprocessed = false인 모든 기사를 한 번에 조회"""
+        """is_preprocessed = false인 모든 기사를 페이지네이션으로 조회"""
         try:
-            result = self.supabase_manager.client.table('articles').select(
-                'id, title, content, media_id, published_at, is_preprocessed'
-            ).eq('is_preprocessed', False).execute()
+            all_articles = []
+            page_size = 1000  # Supabase 기본 제한
+            offset = 0
             
-            print(f"🔍 조회된 false 기사 수: {len(result.data) if result.data else 0}개")
-            return result.data if result.data else []
+            while True:
+                result = self.supabase_manager.client.table('articles').select(
+                    'id, title, content, media_id, published_at, is_preprocessed'
+                ).eq('is_preprocessed', False).range(offset, offset + page_size - 1).execute()
+                
+                if not result.data:
+                    break
+                    
+                all_articles.extend(result.data)
+                
+                # 마지막 페이지인지 확인
+                if len(result.data) < page_size:
+                    break
+                    
+                offset += page_size
+                print(f"📄 페이지 조회 중... {len(all_articles)}개 수집됨")
+            
+            print(f"🔍 조회된 false 기사 수: {len(all_articles)}개")
+            return all_articles
             
         except Exception as e:
             print(f"❌ false 기사 조회 실패: {str(e)}")
