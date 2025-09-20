@@ -45,7 +45,7 @@ class DataProcessor:
         """모든 이슈 데이터 조회"""
         try:
             result = self.supabase_manager.client.table('issues').select(
-                'id, title, issue_summary, created_at, source'
+                'id, title, issue_summary, created_at, source, left_perspective, right_perspective'
             ).order('created_at', desc=True).execute()
             
             if not result.data:

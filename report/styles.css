@@ -199,6 +199,65 @@ body {
     font-size: 14px;
 }
 
+/* 성향별 관점 스타일 */
+.perspectives-container {
+    margin-top: 20px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e1e5e9;
+}
+
+.perspectives-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.perspective-item {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #ffffff;
+    border-radius: 6px;
+    border-left: 4px solid #e9ecef;
+}
+
+.perspective-item:last-child {
+    margin-bottom: 0;
+}
+
+.perspective-item.left {
+    border-left-color: #2196f3;
+}
+
+.perspective-item.right {
+    border-left-color: #f44336;
+}
+
+.perspective-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.perspective-label.left {
+    color: #2196f3;
+}
+
+.perspective-label.right {
+    color: #f44336;
+}
+
+.perspective-content {
+    font-size: 14px;
+    color: #333333;
+    line-height: 1.6;
+}
+
 /* 반응형 디자인 */
 @media (max-width: 768px) {
     body {
@@ -216,5 +275,17 @@ body {
     
     .subtitle {
         font-size: 15px;
+    }
+    
+    .perspectives-container {
+        padding: 12px;
+    }
+    
+    .perspective-item {
+        padding: 10px;
+    }
+    
+    .perspective-content {
+        font-size: 13px;
     }
 }

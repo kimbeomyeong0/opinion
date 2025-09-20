@@ -28,15 +28,7 @@ class HTMLGenerator:
     
     def _get_fallback_css(self) -> str:
         """CSS 파일 로드 실패 시 기본 스타일"""
-        return """
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-               max-width: 800px; margin: 0 auto; padding: 20px; }
-        .issue-card { border: 1px solid #e9ecef; border-radius: 12px; 
-                     padding: 24px; margin-bottom: 32px; }
-        .title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-        .gauge-bar { height: 24px; background: #f1f3f4; border-radius: 4px; 
-                    overflow: hidden; margin-bottom: 12px; }
-        """
+        return "/* CSS 파일을 찾을 수 없습니다 */"
     
     def generate_gauge_bar(self, stats: Dict[str, int]) -> str:
         """게이지바 HTML 생성"""
@@ -71,19 +63,6 @@ class HTMLGenerator:
         gauge_html += '</div></div>'
         return gauge_html
     
-    def format_timeline(self, timeline: str) -> str:
-        """타임라인을 HTML 형식으로 포맷팅"""
-        if not timeline or not timeline.strip():
-            return '<div class="no-content">타임라인 정보가 없습니다.</div>'
-        
-        timeline_items = [item.strip() for item in timeline.split('\n') if item.strip()]
-        
-        timeline_html = '<ul class="bullet-list">'
-        for item in timeline_items:
-            timeline_html += f'<li style="margin-bottom: 12px;">{item}</li>'
-        timeline_html += '</ul>'
-        
-        return timeline_html
     
     def format_date(self, date_str: str) -> str:
         """날짜 포맷팅"""
@@ -111,6 +90,32 @@ class HTMLGenerator:
         clean_title = self.clean_text(issue.get('title', ''))
         clean_summary = self.clean_text(issue.get('issue_summary', ''))
         
+        # 성향별 관점 처리
+        left_perspective = self.clean_text(issue.get('left_perspective', ''))
+        right_perspective = self.clean_text(issue.get('right_perspective', ''))
+        
+        # 관점 섹션 HTML 생성
+        perspectives_html = ""
+        if left_perspective or right_perspective:
+            perspectives_html = '<div class="perspectives-container">'
+            perspectives_html += '<div class="perspectives-title">성향별 관점</div>'
+            
+            if left_perspective:
+                perspectives_html += f'''
+                <div class="perspective-item">
+                    <div class="perspective-label left">진보 관점</div>
+                    <div class="perspective-content">{left_perspective}</div>
+                </div>'''
+            
+            if right_perspective:
+                perspectives_html += f'''
+                <div class="perspective-item">
+                    <div class="perspective-label right">보수 관점</div>
+                    <div class="perspective-content">{right_perspective}</div>
+                </div>'''
+            
+            perspectives_html += '</div>'
+        
         return f"""
     <div class="issue-card">
         <div class="issue-header">
@@ -125,6 +130,8 @@ class HTMLGenerator:
             <div class="gauge-title">언론사 성향별 보도 비율</div>
             {gauge_bar}
         </div>
+        
+        {perspectives_html}
     </div>"""
     
     def generate_full_html(self, issues: List[Dict[str, Any]], all_stats: List[Dict[str, int]]) -> str:
